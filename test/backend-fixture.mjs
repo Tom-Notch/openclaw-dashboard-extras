@@ -1,9 +1,4 @@
-import { build } from 'esbuild';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { after } from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { importProductionModule } from './helpers/load-production.mjs';
 
 // Synthetic SDK contracts: never import the operator's installed host or state.
 const sdkFixture = `
@@ -39,12 +34,8 @@ export async function openLocalFileSafely({ filePath }) {
 `;
 
 export async function loadBackend({ mockChildProcess = false } = {}) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-extras-test-build-'));
-  after(() => fs.rm(directory, { recursive: true, force: true }));
-  const outfile = path.join(directory, 'backend.mjs');
-  await build({
+  return importProductionModule({
     entryPoints: [new URL('../src/index.ts', import.meta.url).pathname],
-    bundle: true, outfile, sourcemap: 'inline', platform: 'node', format: 'esm', logLevel: 'silent',
     plugins: [{ name: 'synthetic-sdk', setup(builder) {
       if (mockChildProcess) {
         builder.onResolve({ filter: /^node:child_process$/ }, () => ({ path: 'child-process', namespace: 'test-process' }));
@@ -58,7 +49,6 @@ export async function loadBackend({ mockChildProcess = false } = {}) {
       builder.onLoad({ filter: /.*/, namespace: 'sdk' }, () => ({ contents: sdkFixture, loader: 'js' }));
     } }],
   });
-  return import(pathToFileURL(outfile).href);
 }
 
 export function createApi(root, options = {}) {
