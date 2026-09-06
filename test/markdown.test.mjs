@@ -92,3 +92,11 @@ test("math macros cannot leak between formulas", () => {
   const node = rendered("$\\gdef\\mycommand{x}\\mycommand$ $\\mycommand$");
   assert.match(node.textContent, /\\mycommand/);
 });
+
+test("adversarial placeholder prefixes do not cause quadratic rendering work", () => {
+  const source = "OPENCLAWKATEXPLACEHOLDER" + "X".repeat(90_000) + " $x$";
+  const started = performance.now();
+  const node = rendered(source);
+  assert.equal(node.querySelectorAll("math").length, 1);
+  assert.ok(performance.now() - started < 400, "bounded input must not monopolize a browser frame for a second");
+});
