@@ -1,12 +1,31 @@
 {
   "id": "dashboard-extras",
   "name": "Dashboard Extras",
-  "description": "Independent mathematical Markdown and safe local-file previews.",
+  "description": "Independent mathematical Markdown and safe native file actions",
   "enabledByDefault": false,
-  "activation": { "onStartup": true },
+  "activation": {
+    "onStartup": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "defaultView": {
+        "type": "string",
+        "enum": [
+          "builtin",
+          "math"
+        ],
+        "default": "builtin",
+        "description": "Opt in to the plugin transcript on activation. Each browser can override this using the view actions."
+      }
+    }
+  },
+  "version": "0.1.0",
+  "controlUi": {
+    "entry": "dist/control-ui/d734e5d4817ab586857e92d063a56634e9c21295fe7cfa793dbb9a50446ccd37/index.js"
+  },
+  "contracts": {
+    "tools": []
   }
 }

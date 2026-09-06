@@ -43,7 +43,13 @@ jobs:
           openclaw --version
       - name: Check tests, build, and repository scan
         run: npm run check
+      - name: Enforce production-only coverage
+        run: npm run test:coverage
       - name: Verify the canonical build entry
         run: npm run build
+      - name: Install isolated Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify the real browser bundle
+        run: npm run test:e2e
       - name: Inspect distributable contents
         run: npm pack --dry-run

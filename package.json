@@ -6,17 +6,36 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:coverage": "node --experimental-test-coverage --test test/*.test.mjs",
+    "test:coverage": "node scripts/coverage.mjs",
+    "test:e2e": "node test/browser.e2e.mjs",
     "build": "node scripts/build.mjs",
     "check": "npm test && npm run build && node scripts/scan.mjs"
   },
-  "engines": { "node": ">=22" },
-  "files": ["dist", "openclaw.plugin.json", "README.md", "LICENSE", "NOTICE", "docs", "licenses"],
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "src",
+    "scripts/build.mjs",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "docs",
+    "licenses"
+  ],
   "openclaw": {
-    "extensions": ["./dist/index.js"],
+    "extensions": [
+      "./dist/index.js"
+    ],
     "controlUi": "./src/control-ui.ts",
-    "compat": { "pluginApi": ">=2026.9.2" },
-    "install": { "minHostVersion": ">=2026.9.2" }
+    "compat": {
+      "pluginApi": ">=2026.9.2"
+    },
+    "install": {
+      "minHostVersion": ">=2026.9.2"
+    }
   },
   "dependencies": {
     "dompurify": "^3.4.14",
@@ -24,7 +43,9 @@
     "markdown-it": "^15.0.1"
   },
   "devDependencies": {
+    "c8": "^12.0.0",
     "esbuild": "^0.28.2",
-    "happy-dom": "^20.14.0"
+    "happy-dom": "^20.14.0",
+    "playwright": "^1.63.0"
   }
 }

@@ -1,0 +1,17 @@
+OpenClaw Dashboard Extras is an independent community project. It is not an
+official OpenClaw distribution and is not affiliated with the OpenClaw Foundation.
+
+Some math parsing and native-file safety code derives from the MIT-licensed
+openclaw-dashboard-compat project and OpenClaw-related contributions.
+Copyright (c) 2026 openclaw-dashboard-compat contributors.
+OpenClaw: Copyright (c) 2026 OpenClaw Foundation.
+
+The browser bundle includes KaTeX, DOMPurify, markdown-it and their runtime
+dependencies. Their complete license texts are included under licenses/.
+KaTeX: Copyright (c) 2013-2020 Khan Academy and other contributors (MIT).
+DOMPurify: Copyright Cure53 and contributors (Apache-2.0 or MPL-2.0).
+markdown-it: Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin (MIT).
+
+OpenClaw itself and its Plugin SDK remain external host dependencies; they
+are not bundled into this plugin. No user configuration, credentials, local
+files, or conversation data are distributed with it.
