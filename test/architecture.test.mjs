@@ -62,7 +62,7 @@ function violations(source, filename = path.join(sourceRoot, "fixture.ts")) {
     ["runtime filesystem mutation", /\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream|truncate(?:Sync)?|ftruncate(?:Sync)?|rm(?:Sync)?|rmdir(?:Sync)?|unlink(?:Sync)?|rename(?:Sync)?|mkdir(?:Sync)?|copyFile(?:Sync)?|cp(?:Sync)?|symlink(?:Sync)?|chmod(?:Sync)?|chown(?:Sync)?)\s*\(/],
     ["shell execution", /(?<![\w.])exec\s*\(|\bexecSync\s*\(|\bimport\s*\{[^}]*\bexec(?:Sync)?\b[^}]*\}\s*from\s*["'](?:node:)?child_process["']|\bshell\s*:\s*true\b/],
     ["runtime install or shell child", /\b(?:execFile(?:Async|Sync)?|spawn(?:Sync)?)\s*\(\s*["'](?:[^"']*\/)?(?:npm|pnpm|yarn|git|sh|bash|zsh|curl|wget)["']/],
-    ["built-in UI traversal", /\bdocument\s*\.\s*(?:querySelector(?:All)?|getElementById|getElementsByClassName)\s*\(|\bMutationObserver\b|\bmountDefault\s*\(/],
+    ["built-in UI traversal", /\bdocument\s*\.\s*(?:querySelector(?:All)?|getElementById|getElementsByClassName)\s*\(/],
     ["broad browser preference mutation", /\blocalStorage\s*\.\s*clear\s*\(/],
     ["replacement of core-owned editing or session flows", /\bsurface\s*:\s*["'](?:composer|workspace|session-list|tool-result)["']/],
   ];
@@ -113,7 +113,10 @@ test("browser contributions are optional and native RPC authority stays explicit
   assert.match(browser, /\bapiVersion\s*!==\s*1\b/, "unsupported browser protocol must be rejected");
   assert.match(browser, /\bregisterReplacement\s*\(/);
   assert.match(browser, /\bsurface\s*:\s*["']transcript["']/);
-  assert.match(browser, /\bregisterPanel\s*\(/);
+  assert.doesNotMatch(browser, /\bregister(?:Panel|Action)\s*\(/);
+  const adapter = readFileSync(path.join(sourceRoot, "native-transcript.ts"), "utf8");
+  assert.match(adapter, /initial\.mountDefault\(native\)/);
+  assert.match(adapter, /container\.closest<HTMLElement>\('openclaw-chat-pane'\)/);
   for (const method of ["dashboardExtras.capabilities", "dashboardExtras.openLocalFile"]) {
     assert.ok(backend.includes(method), `missing scoped RPC: ${method}`);
   }

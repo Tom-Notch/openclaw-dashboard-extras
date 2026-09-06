@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import MarkdownIt from "markdown-it";
 import { Window } from "happy-dom";
 import { importProductionModule } from "./helpers/load-production.mjs";
 
 const window = new Window();
 window.document.write("<!doctype html><html><body></body></html>");
 Object.assign(globalThis, { window, document: window.document });
-const { renderMarkdown, parseLocalFileTarget } = await importProductionModule({
-  entryPoints: [new URL("../src/markdown.ts", import.meta.url).pathname],
+const { enhanceNativeMath } = await importProductionModule({
+  entryPoints: [new URL("../src/native-math.ts", import.meta.url).pathname],
   bundle: true, write: false, platform: "node", format: "esm", logLevel: "silent",
 });
 function rendered(source) {
   const node = document.createElement("div");
-  node.innerHTML = renderMarkdown(source);
+  node.setAttribute("data-message-text", source);
+  const content = document.createElement("div");
+  content.className = "chat-text";
+  content.innerHTML = new MarkdownIt({ html:false,breaks:true }).render(source);
+  node.append(content);
+  enhanceNativeMath(node);
   return node;
 }
 
@@ -25,7 +31,7 @@ for (const source of ["$\\frac{1}{2}$", "$$\\frac{1}{2}$$", "\\(\\frac{1}{2}\\)"
 test("math asterisks and multiline display math survive Markdown parsing", () => {
   const result = rendered("$a*b*c$\n\n$$\\frac{1}{2}\n\n+ x$$");
   assert.equal(result.querySelectorAll("math").length, 2);
-  assert.equal(result.querySelectorAll("em").length, 0);
+  assert.ok([...result.querySelectorAll("em")].every(node => !node.textContent));
 });
 
 test("code, escaped delimiters, currency, and unfinished streaming remain literal", () => {
@@ -41,48 +47,17 @@ test("untrusted HTML, event attributes, links, and TeX cannot execute", () => {
   assert.equal(result.querySelectorAll('a[href^="javascript:"]').length, 0);
 });
 
-test("external links retain normal browser navigation with safe opener policy", () => {
-  const anchor = rendered("[docs](https://example.org/docs)").querySelector("a");
-  assert.equal(anchor.getAttribute("href"), "https://example.org/docs");
-  assert.equal(anchor.getAttribute("target"), "_blank");
-  assert.match(anchor.getAttribute("rel"), /noopener/);
-});
-
-test("local paths with spaces and parentheses produce explicit preview actions", () => {
-  const node = rendered("[local](/fixture/work/report (final).txt) [url](file:///fixture/work/report%20final.pdf)");
-  assert.deepEqual([...node.querySelectorAll("a")].map(a => a.dataset.filePath), ["/fixture/work/report (final).txt", "/fixture/work/report final.pdf"]);
-  assert.ok([...node.querySelectorAll("a")].every(a => a.getAttribute("href") === "#"));
-});
-
-test("local link syntax inside code is never converted into an action", () => {
-  const node = rendered("`[local](/fixture/work/report (final).txt)`");
-  assert.equal(node.querySelectorAll("a").length, 0);
-  assert.match(node.textContent, /report \(final\)/);
-});
-
-test("rejects remote file URLs, double-encoded separators and control bytes", () => {
-  for (const href of ["file://remote/share/file.txt", "file:///fixture/a%2fb.txt", "file:///fixture/a%252fb.txt", "file:///fixture/a%00.txt", "javascript:alert(1)", "//remote/file", "https://example.org/file.txt", "file:///fixture/x?secret=y"]) {
-    assert.equal(parseLocalFileTarget(href), null, href);
-  }
-});
-
-test("never guesses redacted paths or rewrites filenames' literal spaces", () => {
-  assert.equal(parseLocalFileTarget("/fixture/***/report.txt"), "/fixture/***/report.txt");
-  assert.equal(parseLocalFileTarget("./report.txt:12"), "./report.txt");
-  assert.equal(parseLocalFileTarget("file:///fixture/space%20.txt"), "/fixture/space .txt");
-});
-
 test("math cannot be injected into link attributes or code", () => {
   const node = rendered('[x](https://example.org/"$x$")\n\n    $y$');
   assert.equal(node.querySelectorAll("math").length, 0);
   assert.equal(node.querySelectorAll("code math").length, 0);
 });
 
-test("formula count and source size are bounded with a visible notice", () => {
+test("formula count and source work are bounded without truncating native messages", () => {
   assert.ok(rendered(Array(300).fill("$x$").join(" ")).querySelectorAll("math").length <= 256);
   const node = rendered("x".repeat(200_000));
-  assert.ok(node.textContent.length < 150_000);
-  assert.match(node.textContent, /truncated/i);
+  assert.ok(node.textContent.length >= 200_000);
+  assert.equal(node.querySelector("math"), null);
 });
 
 test("math macros cannot leak between formulas", () => {

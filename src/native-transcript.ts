@@ -28,7 +28,23 @@ export function mountNativeTranscript(container: HTMLElement, initial: Context) 
   const live = () => !disposed && !current.signal.aborted && current.presented !== false;
   const connected = () => live() && current.host.connection.connected && current.host.connection.canRead;
   const scope = () => ({ sessionKey: current.props.sessionKey, agentId: current.props.agentId });
-  const pathOf = (view: HTMLElement) => view.querySelector('.sidebar-file-view__path')?.getAttribute('title') ?? '';
+  function pathOf(view: HTMLElement): string {
+    if (view.matches('.sidebar-file-view')) return view.querySelector('.sidebar-file-view__path')?.getAttribute('title') ?? '';
+    // Images and unsupported binary files have no text editor/path toolbar.
+    // Only the native workspace-file preview shapes are eligible, never an
+    // arbitrary attachment URL or HTML link. The RPC still revalidates the file.
+    const content = (view as HTMLElement & { content?: unknown }).content;
+    if (!record(content)) return '';
+    if (content.kind === 'image' && text(content.rawText) && typeof content.src === 'string' && content.src.startsWith('data:image/')) return content.rawText;
+    if (content.kind === 'markdown' && typeof content.rawText === 'string' && content.rawText.startsWith('This file is not previewable inline.')) {
+      const match = /^- Path: (`+)([^\r\n]+)\1$/mu.exec(content.rawText);
+      return match?.[2] ?? '';
+    }
+    return '';
+  }
+  function actionTarget(view: HTMLElement): Element | null {
+    return view.matches('.sidebar-file-view') ? view.querySelector('.sidebar-file-view__footer') : view.querySelector('.sidebar-content');
+  }
   const valid = (action: Action) => connected() && action.active && pane.contains(action.view) && pathOf(action.view) === action.path;
   const label = /^zh/iu.test(current.host.locale) ? '用默认应用打开' : 'Open in Default Application';
 
@@ -43,7 +59,9 @@ export function mountNativeTranscript(container: HTMLElement, initial: Context) 
     action.status.style.fontSize = '12px';
     action.status.style.color = 'var(--muted, currentColor)';
     action.status.textContent = value;
-    action.button?.parentNode?.append(action.status);
+    action.status.style.display = 'block';
+    action.status.style.padding = '4px 12px';
+    action.view.append(action.status);
   }
 
   async function open(action: Action) {
@@ -71,14 +89,16 @@ export function mountNativeTranscript(container: HTMLElement, initial: Context) 
       if (!valid(action) || !current.host.connection.canAdmin || !record(access) || access.nativeOpen !== true || !text(access.sessionId) || !text(access.root)) return;
       const file = await current.host.request('sessions.files.get', { ...scope(), path: action.path });
       if (!valid(action) || !current.host.connection.canAdmin || !record(file) || file.sessionKey !== current.props.sessionKey || file.root !== access.root || !record(file.file) || !text(file.file.path) || file.file.missing === true) return;
-      const toolbar = action.view.querySelector('.sidebar-file-view__actions');
+      const toolbar = actionTarget(action.view);
       if (!toolbar) return;
       action.binding = { path: file.file.path, sessionId: access.sessionId, root: access.root };
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'btn btn--sm'; button.textContent = label;
       button.dataset.dashboardExtrasOpen = ''; button.title = label;
       button.addEventListener('click', () => { void open(action); });
-      action.button = button; toolbar.append(button);
+      action.button = button;
+      if (action.view.matches('.sidebar-file-view')) toolbar.prepend(button);
+      else { button.style.margin = '8px 12px'; toolbar.append(button); }
     } catch { /* Optional feature unavailable; native preview and Gateway stay intact. */ }
   }
 
@@ -97,10 +117,11 @@ export function mountNativeTranscript(container: HTMLElement, initial: Context) 
         if (!valid(action) || !current.host.connection.canAdmin || (action.button && !action.view.contains(action.button))) retire(action);
       }
       if (connected() && current.host.connection.canAdmin) {
-        for (const view of pane.querySelectorAll<HTMLElement>('.sidebar-file-view')) {
+        for (const view of pane.querySelectorAll<HTMLElement>('.sidebar-file-view,openclaw-chat-detail-panel')) {
           if (view.closest('openclaw-chat-pane') !== (pane.matches('openclaw-chat-pane') ? pane : null)) continue;
+          if (view.matches('openclaw-chat-detail-panel') && view.querySelector('.sidebar-file-view')) continue;
           const path = pathOf(view);
-          if (!text(path) || path.length > 8_192 || actions.has(view) || !view.querySelector('.sidebar-file-view__actions')) continue;
+          if (!text(path) || path.length > 8_192 || actions.has(view) || !actionTarget(view)) continue;
           const action: Action = { view, path, busy:false, active:true };
           actions.set(view, action); void attachAction(action);
         }
