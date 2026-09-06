@@ -187,7 +187,7 @@ function mountView(container: HTMLElement, initial: ViewContext, showTranscript:
       }
       selected = {
         ...scope,
-        path: file.path,
+        path: file.path as /* Validated by nonempty(response.file.path) above. */ string,
         expectedSessionId: access.sessionId,
         expectedRoot: rootMatches ? access.root : undefined,
         nativeOpen: access.nativeOpen && rootMatches,
