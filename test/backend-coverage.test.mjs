@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
 import { buildProductionArtifact, importProductionModule } from './helpers/load-production.mjs';
+import { normalizeCoverageSourceMaps } from './helpers/coverage-source-map.mjs';
 
 test('production source maps resolve to actual source files, not temporary-directory aliases', async () => {
   const artifact = await buildProductionArtifact({ entryPoints: ['src/index.ts'], external: ['openclaw/*'], format: 'esm' });
@@ -24,4 +25,17 @@ test('ESM helper executes a file-backed synthetic test module', async () => {
     loader: 'js',
   } });
   assert.equal(module.answer, 42);
+});
+
+test('coverage URL normalization never changes V8 execution ranges or counts', () => {
+  const result = [{ url: 'file:///synthetic/generated.mjs', functions: [{ functionName: 'unexecuted', ranges: [{ startOffset: 1, endOffset: 5, count: 0 }], isBlockCoverage: true }] }];
+  const raw = { result, 'source-map-cache': { 'file:///synthetic/generated.mjs': {
+    data: { sources: ['file:///synthetic/src/example.ts', 'sdk:synthetic'], mappings: 'AAAA', sourcesContent: ['function unexecuted() {}', ''] },
+    lineLengths: [25],
+  } } };
+  const normalized = normalizeCoverageSourceMaps(raw);
+  assert.deepEqual(normalized.result, result);
+  assert.equal(normalized['source-map-cache']['file:///synthetic/generated.mjs'].data.sources[0], '/synthetic/src/example.ts');
+  assert.equal(normalized['source-map-cache']['file:///synthetic/generated.mjs'].data.mappings, 'AAAA');
+  assert.equal(raw['source-map-cache']['file:///synthetic/generated.mjs'].data.sources[0], 'file:///synthetic/src/example.ts');
 });
