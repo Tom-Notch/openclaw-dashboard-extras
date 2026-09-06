@@ -5,6 +5,7 @@ import type {
 } from "openclaw/plugin-sdk/control-ui";
 import { parseLocalFileTarget, renderMarkdown } from "./markdown.ts";
 import styles from "./styles.ts";
+import { chooseTranscript } from "./ui-preference.ts";
 
 type ViewProps = Pick<ControlUiSurfaceProps["transcript"], "sessionKey" | "agentId"> &
   Partial<Pick<ControlUiSurfaceProps["transcript"], "messages" | "stream" | "loading">>;
@@ -77,6 +78,14 @@ function mountView(container: HTMLElement, initial: ViewContext, showTranscript:
   const identity = () => ({ sessionKey: current.props.sessionKey, agentId: current.props.agentId });
   const canOpen = () => Boolean(alive() && current.host.connection.connected && current.host.connection.canAdmin && selected?.nativeOpen && selected.expectedSessionId && selected.expectedRoot);
   const syncButton = () => { if (openButton) openButton.disabled = busy || !canOpen(); };
+  const connectionState = () => `${current.host.connection.connected}:${current.host.connection.canRead}:${current.host.connection.canAdmin}`;
+  let lastConnection = connectionState();
+  const onHostChange = () => {
+    const next = connectionState();
+    if (next !== lastConnection) clearPreview();
+    lastConnection = next;
+    syncButton();
+  };
 
   function clearPreview() {
     generation += 1;
@@ -317,11 +326,16 @@ function mountView(container: HTMLElement, initial: ViewContext, showTranscript:
     form.append(input, submit);
     form.addEventListener("submit", event => { event.preventDefault(); void previewFile(input.value); });
     shell.append(form);
+  } else {
+    const restore = node("button", "Use built-in transcript");
+    restore.type = "button";
+    restore.addEventListener("click", () => { if (alive()) chooseTranscript(current.host, "builtin"); });
+    header.append(restore);
   }
   shell.append(grid);
   shadow.append(stylesheet, shell);
   container.append(element);
-  const stopHost = current.host.subscribe(syncButton);
+  let stopHost = current.host.subscribe(onHostChange);
   const onAbort = () => clearPreview();
   current.signal.addEventListener("abort", onAbort, { once: true });
   renderTranscript();
@@ -329,12 +343,16 @@ function mountView(container: HTMLElement, initial: ViewContext, showTranscript:
     update(next: ViewContext) {
       if (disposed) return;
       const previous = identity();
-      if (next.props.sessionKey !== previous.sessionKey || next.props.agentId !== previous.agentId || next.presented === false || next.signal !== current.signal) clearPreview();
+      const changedHost = next.host !== current.host;
+      if (next.props.sessionKey !== previous.sessionKey || next.props.agentId !== previous.agentId || next.presented === false || next.signal !== current.signal || changedHost) clearPreview();
       if (next.signal !== current.signal) {
         current.signal.removeEventListener("abort", onAbort);
         next.signal.addEventListener("abort", onAbort, { once: true });
       }
+      if (changedHost) stopHost();
       current = next;
+      if (changedHost) stopHost = current.host.subscribe(onHostChange);
+      onHostChange();
       renderTranscript();
       syncButton();
     },

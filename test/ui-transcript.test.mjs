@@ -179,17 +179,17 @@ test("session incarnation change between preview and explicit launch is rejected
 test("errors stay visible without leaking backend paths or credential-like details", async t => {
   const view = await fixture(t, { request: async method => {
     if (method === "dashboardExtras.capabilities") return caps;
-    throw new Error("Private path /Users/private/secret and auth-token-do-not-render");
+    throw new Error("Private path /private-host/secret and auth-token-do-not-render");
   } });
   await preview(view);
   assert.match(view.shadow.textContent, /Could not|Unable to|unavailable/i);
-  assert.doesNotMatch(view.shadow.textContent, /Users\/private|auth-token/);
+  assert.doesNotMatch(view.shadow.textContent, /private-host|auth-token/);
 });
 
 test("literal masked paths are never guessed or repaired by the browser", async t => {
-  const view = await fixture(t, { messages: [{ role: "assistant", content: "[Old file](/Users/***/Downloads/file.pdf)" }] });
+  const view = await fixture(t, { messages: [{ role: "assistant", content: "[Old file](/workspace/***/downloads/file.pdf)" }] });
   await preview(view);
-  assert.equal(view.calls.find(call => call.method === "sessions.files.get").params.path, "/Users/***/Downloads/file.pdf");
+  assert.equal(view.calls.find(call => call.method === "sessions.files.get").params.path, "/workspace/***/downloads/file.pdf");
 });
 
 test("missing and binary previews explain their state and never attempt an implicit launch", async t => {
