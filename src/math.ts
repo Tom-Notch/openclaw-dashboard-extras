@@ -316,10 +316,14 @@ export function extractMarkdownMath(source: string): ExtractedMarkdownMath {
   const protectedRanges = codeRanges(source);
   const fragments: MarkdownMathFragment[] = [];
   const output: string[] = [];
-  let tokenPrefix = PLACEHOLDER_PREFIX;
-  while (source.includes(tokenPrefix)) {
-    tokenPrefix += "X";
-  }
+  // Choose an absent short prefix in linear time. Growing the prefix one X at
+  // a time causes quadratic rescanning on an adversarial long X suffix.
+  const occupied = new Set(
+    [...source.matchAll(/OPENCLAWKATEXPLACEHOLDER(\d+)X/gu)].map((match) => match[1]),
+  );
+  let nonce = 0;
+  while (occupied.has(String(nonce))) nonce += 1;
+  const tokenPrefix = `${PLACEHOLDER_PREFIX}${nonce}X`;
   let cursor = 0;
   let plainStart = 0;
 
