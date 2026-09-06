@@ -61,6 +61,8 @@ name does not imply an npm release already exists.
    runtime inspection: working service, RPCs and expected plugin assets.
 2. In a normal session, without choosing a mode, render inline/block/matrix
    formulas and stream a partial formula to completion.
+   Compare the same display formula written on one line, several lines, and
+   with an internal blank line: source layout must not leave extra empty rows.
 3. Check native message groups, tool disclosures, copy/reply buttons, history,
    web links, code blocks and unsent composer text. No plugin title or second
    scrollable transcript should appear.

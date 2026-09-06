@@ -16,6 +16,8 @@ buttons, the composer, history, and file previews remain owned by OpenClaw.
   Formula base size follows the live chat-text setting consistently across
   paragraphs, headings and tables. MathML still preserves normal script/fraction
   hierarchy and explicit TeX size commands; it does not flatten all glyphs.
+  Multiline TeX does not leave source line breaks or empty paragraphs behind
+  the rendered formula. Surrounding prose retains its normal spacing.
 - **Click any local file link → the Gateway host's system default application.**
   No file-extension allowlist, preview-kind detection, or Dashboard file-read
   request. Files without extensions work too. The OS decides which app to use.

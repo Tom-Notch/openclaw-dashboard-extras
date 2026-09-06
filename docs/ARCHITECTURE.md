@@ -29,6 +29,7 @@ These parts are therefore **DOM adapters**, not promises of public-API stability
 | `[data-message-text]` and descendant `.chat-text` | Source-backed formula location inside mounted native messages | Leave native content readable |
 | `.chat-text a` / native `data-file-path` | Explicit local-file clicks, independent of file extension | Keep web/session/fragment navigation native; no global interception |
 | `--chat-text-size` | One formula base size across prose, headings and tables, following live user font-size changes | Fall back to inherited `1em` |
+| Native `br` / `p` inside matched math ranges | Suppress line breaks and empty paragraph remnants already consumed by math | Leave unrelated/unknown markup and prose spacing alone |
 
 The observer is restricted to its own mounted transcript.
 It never changes core methods, stylesheets, global renderer functions, document
@@ -54,6 +55,14 @@ Formula wrappers use the conversation's base-size token rather than inheriting
 incidental heading/table font sizes. This does not override MathML script depth,
 inline/display fraction layout, or explicit TeX sizing. Native text styles are
 untouched, and an existing formula follows chat-size changes without rerendering.
+
+Before replacing text, the adapter records only line breaks and paragraphs
+intersecting that formula's source range. Consumed breaks and now-empty
+paragraphs are hidden, not removed; their original inline display styles are
+restored when the host changes/reuses the source or detaches the nodes. Display
+math also replaces its immediate delimiter line boundaries. Small collapsible
+margins share native paragraph spacing instead of adding padding on top of it.
+Unrelated prose breaks, native elements and Lit markers retain their owners.
 
 ### Direct file actions and lifetime
 
