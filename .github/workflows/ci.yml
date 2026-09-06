@@ -1,0 +1,49 @@
+name: Latest OpenClaw compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Latest host / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install plugin dependencies from the reviewed lock
+        run: npm ci
+      - name: Install the current host on this disposable runner
+        run: npm install --global openclaw@latest
+      - name: Record the tested host and runtime
+        run: |
+          node --version
+          npm --version
+          openclaw --version
+      - name: Check tests, build, and repository scan
+        run: npm run check
+      - name: Verify the canonical build entry
+        run: npm run build
+      - name: Inspect distributable contents
+        run: npm pack --dry-run
