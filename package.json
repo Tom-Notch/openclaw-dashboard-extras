@@ -1,0 +1,12 @@
+{
+  "name": "@tom-notch/openclaw-dashboard-extras",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent mathematical Markdown and safe local-file previews for OpenClaw",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=22" }
+}
