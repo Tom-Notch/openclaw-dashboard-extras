@@ -5,6 +5,7 @@ import katex from "katex";
 const PLACEHOLDER_PREFIX = "OPENCLAWKATEXPLACEHOLDER";
 const PLACEHOLDER_SUFFIX = "ZXQ";
 const MAX_FORMULA_CHARS = 20_000;
+const MAX_RENDERED_FORMULA_CHARS = 128_000;
 const MAX_CACHE_ENTRIES = 256;
 export const MAX_MATH_FRAGMENTS = 256;
 
@@ -488,6 +489,7 @@ function renderFormula(fragment: MarkdownMathFragment): string {
       maxSize: 20,
       macros: {},
     });
+    if (rawRendered.length > MAX_RENDERED_FORMULA_CHARS) return escapeHtml(fragment.raw);
     const rendered = fragment.display
       ? rawRendered.replace('class="katex"', 'class="katex katex-block"')
       : rawRendered;
