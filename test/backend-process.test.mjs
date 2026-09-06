@@ -99,7 +99,7 @@ test('registration and handler exceptions cannot expose private diagnostics', as
   const { api, methods, logs } = createApi(workspace);
   backend.registerDashboardExtras(api, { platform: 'darwin' });
   api.runtime.config.current = () => { throw Error(`private ${workspace}`); };
-  assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', { sessionKey: 'agent:main:test' }), { nativeOpen: false, defaultView: 'builtin' });
+  assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', { sessionKey: 'agent:main:test' }), { nativeOpen: false });
   assert.equal((await invoke(methods, 'dashboardExtras.openLocalFile', {
     sessionKey: 'agent:main:test', path: 'report.txt', expectedSessionId: 'session-1', expectedRoot: workspace,
   })).opened, false);

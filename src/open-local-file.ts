@@ -17,7 +17,7 @@ export type NativeOpenDeps = {
 type FailureCode = 'invalid-request' | 'unsupported-platform' | 'unsupported-runtime' | 'session-unavailable' |
   'stale-preview' | 'remote-session' | 'outside-allowed-roots' | 'file-unavailable' | 'not-a-file' | 'unsafe-path' | 'open-failed';
 export type DashboardOpenLocalFileResult = { opened: true } | { opened: false; code: FailureCode; reason: string };
-export type DashboardCapabilities = { nativeOpen: boolean; defaultView: 'math' | 'builtin'; sessionId?: string; root?: string };
+export type DashboardCapabilities = { nativeOpen: boolean; sessionId?: string; root?: string };
 type SessionRequest = { sessionKey: string; agentId?: string };
 type OpenRequest = SessionRequest & { requestedPath: string; expectedSessionId: string; expectedRoot: string };
 const MAX_PATH_LENGTH = 8_192;
@@ -127,23 +127,17 @@ function captureRootIdentities(roots: readonly string[]): string {
   }));
 }
 
-export function getDefaultView(api: OpenClawPluginApi): 'math' | 'builtin' {
-  try { return api?.pluginConfig?.defaultView === 'math' ? 'math' : 'builtin'; }
-  catch { return 'builtin'; }
-}
-
 export async function getDashboardCapabilities(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps = {}): Promise<DashboardCapabilities> {
-  const defaultView = getDefaultView(api);
-  const unavailable = { nativeOpen: false, defaultView };
+  const unavailable = { nativeOpen: false };
   if ((deps.platform ?? process.platform) !== 'darwin' || !supportsNativeOpenRuntime(api)) return unavailable;
   const sdk = await resolveSdk(deps);
   if (!sdk) return unavailable;
-  if (params === undefined || (params && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length === 0)) return { nativeOpen: true, defaultView };
+  if (params === undefined || (params && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length === 0)) return { nativeOpen: true };
   const request = parseSessionRequest(params);
   if (!request) return unavailable;
   try {
     const binding = resolveBinding(api, sdk, request);
-    return !binding || isRemote(binding) ? unavailable : { nativeOpen: true, defaultView, sessionId: binding.entry.sessionId, root: binding.root };
+    return !binding || isRemote(binding) ? unavailable : { nativeOpen: true, sessionId: binding.entry.sessionId, root: binding.root };
   } catch { return unavailable; }
 }
 

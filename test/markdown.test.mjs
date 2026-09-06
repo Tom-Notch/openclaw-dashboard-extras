@@ -6,6 +6,8 @@ import { importProductionModule } from "./helpers/load-production.mjs";
 
 const window = new Window();
 window.document.write("<!doctype html><html><body></body></html>");
+// happy-dom does not implement compatMode; mirror this standards-mode document.
+Object.defineProperty(window.document, "compatMode", { value: "CSS1Compat" });
 Object.assign(globalThis, { window, document: window.document });
 const { enhanceNativeMath } = await importProductionModule({
   entryPoints: [new URL("../src/native-math.ts", import.meta.url).pathname],
@@ -23,7 +25,7 @@ function rendered(source) {
 }
 
 for (const source of ["$\\frac{1}{2}$", "$$\\frac{1}{2}$$", "\\(\\frac{1}{2}\\)", "\\[\\frac{1}{2}\\]"]) {
-  test(`renders bounded native MathML before Markdown parsing: ${source}`, () => {
+  test(`decorates native Markdown with bounded MathML from original TeX: ${source}`, () => {
     assert.equal(rendered(source).querySelectorAll("math mfrac").length, 1);
   });
 }

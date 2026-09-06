@@ -1,105 +1,94 @@
-# Architecture
-
-Dashboard Extras is an external OpenClaw plugin. It contributes an optional
-**Math & Files** transcript and session panel through the public native Control
-UI API. It does not replace the installed Control UI, intercept its composer,
-or take ownership of sessions.
+# Architecture: native composition, not another chat UI
 
 ## Ownership
 
-| Component | Owns | Does not own |
+| Owner | Responsibilities |
+| --- | --- |
+| OpenClaw | Native transcript, message grouping, tools, history, composer, sessions, authentication, file link routing, preview/editor, plugin asset serving |
+| Browser plugin | Mount native transcript; insert sanitized MathML at matched formula text; delegate explicit local-file clicks to the OS default application |
+| Backend plugin | `operator.read` capabilities and `operator.admin` file opening with required profile access and independent filesystem authorization |
+
+`control-ui.ts` registers a transcript contribution and immediately selects it.
+Its mount function calls the **public `context.mountDefault`** exactly once.
+A layout-neutral `display: contents` node is the mount point. The plugin does
+not iterate messages into cards, render tool results, replace a composer, load
+history itself, or maintain session state.
+
+The backend build externalizes public SDK imports. The official
+`openclaw plugins build` command builds content-addressed browser assets owned
+by this package. There are no imports of core `src`/`dist` modules, fixed hashed
+core chunks, custom core roots, wrappers, or startup compilers.
+
+## Explicit DOM compatibility seams
+
+The SDK currently lacks Markdown decorators and native file-link action hooks.
+These parts are therefore **DOM adapters**, not promises of public-API stability:
+
+| Seam | Use | When absent/changed |
 | --- | --- | --- |
-| OpenClaw | Authentication, profiles, session lifecycle, composer, built-in transcript, plugin asset serving | This plugin's Markdown renderer |
-| Plugin browser entry | Selectable transcript, mathematical Markdown, file preview, explicit open button | Core DOM, browser credentials, host configuration |
-| Plugin backend | Read-only capability checks and one scoped native-open operation | Session creation, file editing, plugin/core updates |
+| `[data-message-text]` and descendant `.chat-text` | Source-backed formula location inside mounted native messages | Leave native content readable |
+| `.chat-text a` / native `data-file-path` | Explicit local-file clicks, independent of file extension | Keep web/session/fragment navigation native; no global interception |
 
-The package uses `src/index.ts` for the backend and `src/control-ui.ts` for the
-browser. The build bundles the backend with OpenClaw SDK imports external,
-then calls the official `openclaw plugins build` command to produce the plugin's
-content-addressed browser assets. Assets belong to this package's
-`dist/control-ui/`; they are not the gateway's core asset directory.
+The observer is restricted to its own mounted transcript.
+It never changes core methods, stylesheets, global renderer functions, document
+prototypes, or persistent messages. It retains native element and Lit boundary
+comment identities. The test suite specifically guards those boundaries.
 
-There is no gateway wrapper, custom core asset root, host source checkout,
-startup compiler, binary patch, or automatic updater in the runtime.
+### Math
 
-## Browser lifecycle
+1. Read the displayed native message's original Markdown, with work limits.
+2. Extract closed TeX fragments outside code/fences; do not consume prices.
+3. Project each fragment through ordinary Markdown solely to locate its text
+   in the native DOM, accounting for consumed TeX escapes/emphasis.
+4. Render the **original TeX** using bounded, untrusted KaTeX with fresh macros;
+   sanitize to a narrow MathML allowlist.
+5. Replace only matching text ranges with MathML. Do not delete native elements,
+   links, code blocks, or Lit markers. Unknown markup remains native text.
 
-The browser entry uses `apiVersion: 1`. It registers its own `math-files`
-transcript replacement and session panel. The public package defaults to the
-built-in transcript. Choose **Math & Files** to opt in, or **Use built-in
-transcript** to opt out. The built-in composer remains in place.
+Completed formulas appear on native streaming updates. Formula count, source
+length, expansion and cache limits cap work; oversized/unmatched expressions
+remain readable, without truncating the host message.
 
-The plugin remembers only that choice in its own browser-local
-`openclaw-dashboard-extras.transcript.v1` key. It does not read or modify host
-preference keys. A stored `math` choice restores this view on activation; a stored
-`builtin` choice prevents it. Without a stored choice, the operator-controlled
-plugin setting `defaultView: "math"` can request this view; the default setting
-is `"builtin"`. An explicit browser choice takes precedence over that setting.
+### Direct file actions and lifetime
 
-The public host API does not expose the currently selected replacement. A
-configured math default or remembered math choice can therefore win activation
-order against another plugin's transcript. Do not configure that default if
-another replacement should take precedence. Choosing Built-in remains an
-explicit recovery action. The host's transient selection may clear on reconnect;
-the plugin's own opt-in preference is applied again on activation.
+The click handler runs only inside this mounted native transcript. It uses the
+native file target when available, otherwise classifies scheme-less Markdown
+paths or local `file:` URLs. It never tests extensions, sniffs MIME types, checks
+preview kinds, or reads a file through `sessions.files.get` first. Explicit
+clicks query scoped capability/identity, then pass the target to the authorized
+backend; LaunchServices chooses the application for that actual file.
 
-Transcript content is untrusted input. The plugin renders mathematical Markdown
-inside its own DOM, sanitizes output, and treats file-link parsing as UI routing,
-not authorization. It does not inspect or mutate the built-in transcript's DOM.
-Each view must retire asynchronous work on disposal or a session/agent change.
-Stale preview responses must never authorize a native open in a different view.
+HTTP(S), email, fragment and native session links keep their original owner.
+Alt/modified clicks keep OpenClaw's existing navigation/side-panel behavior.
+There is no content auto-open, wildcard expansion, username substitution or
+silent fallback to another path. Non-local file URL authorities are rejected.
 
-Native plugin UI is an explicit, default-off OpenClaw lab. Enable **Settings →
-Labs → Custom plugin UI**, then schedule the required gateway restart and reload
-the browser. Use trusted localhost or HTTPS. This is trusted same-origin code,
-not a sandbox. See [Security](SECURITY.md).
+The native transcript context supplies the session/agent identity, including
+split panes. Async work is retired on session/agent changes, unpresentation,
+disconnection or disposal. Repeated clicks during one pending open coalesce.
+Failures appear beside the clicked link; success adds no alternate view or panel.
 
-## Native-open boundary
+## Backend security boundary
 
-The two backend methods have separate authority requirements. A global
-capability query also reports the non-sensitive `defaultView` preference, even
-where native opening is unavailable:
+The browser sends `{sessionKey, agentId, path, expectedSessionId, expectedRoot}`.
+These are assertions, not permissions. The backend resolves the live session
+and approved roots, rejects remote/stale sessions, safely opens a regular file,
+checks containment and root identities, obtains an inode-bound macOS file
+reference, and rechecks session/config authority before `/usr/bin/open`.
+The user path is never evaluated as a command or passed as a LaunchServices URL.
+Unsupported safety APIs disable the operation, not Gateway startup.
 
-| Method | Gateway scope | Purpose |
-| --- | --- | --- |
-| `dashboardExtras.capabilities` | `operator.read`, required profile access | Report native-open availability; scoped calls provide current session identity/root |
-| `dashboardExtras.openLocalFile` | `operator.admin`, required profile access | Open an explicitly selected regular file in its default application on the gateway Mac |
+## Compatibility evidence
 
-The open request supplies a session key, optional agent ID, file path, and the
-session identity/root expected by the current preview. These are assertions to
-validate, never grants of authority. The backend resolves the current session
-and allowed roots from the gateway's public runtime APIs, validates the agent,
-and rejects remote execution targets and stale state.
+The package has an audited minimum SDK floor, no host-version equality test,
+no future ceiling, and no runtime installer. The SDK is experimental and DOM
+structure can change even without an API-version bump.
 
-On macOS the backend safely opens a descriptor, checks the resolved regular
-file against server-approved roots, obtains an inode-bound native file reference,
-then rechecks current session/configuration authority before calling
-`/usr/bin/open`. The path supplied by the browser is not a shell command or a
-LaunchServices URL. The descriptor is closed on success and failure. Other
-platforms and unavailable safety APIs reject native opening; math remains an
-independent browser feature.
+Unit tests exercise native ownership, math, stale lifetimes, permissions,
+filesystem races, and resource limits. The browser test serves the **installed
+production Dashboard** with fully synthetic Gateway responses, then exercises
+the complete native render and direct-link paths. CI installs `openclaw@latest`
+on disposable Linux and macOS runners. A passed run proves that tested host,
+not all future versions.
 
-## Compatibility and tests
-
-The minimum host release in package metadata is the earliest SDK and routing
-contract audited for this plugin, not a claim that the API was introduced in
-that release. It has no upper bound and does not install or pin OpenClaw.
-`apiVersion: 1` identifies a protocol, not a host release.
-
-OpenClaw labels all plugin APIs experimental. This project follows a floating
-host-upgrade policy instead of the upstream recommendation to pin a tested host.
-That permits normal upgrades but cannot guarantee every future release works.
-Missing/incompatible APIs must fail closed, and scheduled latest-host CI gives
-early evidence of drift. A passing run describes the host tested by that run;
-it is not a future-compatibility guarantee.
-
-`test/architecture.test.mjs` guards reviewed import boundaries, package ownership,
-open-ended compatibility metadata, and absence of runtime broad writes, shell
-execution, or core-UI replacement. These are static tripwires, not a security
-proof. Behavioral tests cover rendering, request authority, stale work, and the
-native file boundary; the operator smoke test in [Upgrading](UPGRADING.md)
-checks the actual installed integration.
-
-Upstream references: [Feature plugins](https://docs.openclaw.ai/plugins/feature-plugins),
-[SDK stability](https://docs.openclaw.ai/plugins/sdk-overview#api-stability),
-[compatibility policy](https://docs.openclaw.ai/plugins/compatibility).
+Upstream: [Feature plugins](https://docs.openclaw.ai/plugins/feature-plugins).

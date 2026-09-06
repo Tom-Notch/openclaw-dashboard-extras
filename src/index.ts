@@ -2,7 +2,6 @@ import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
 import { toolPluginMetadataSymbol, type ToolPluginMetadata } from 'openclaw/plugin-sdk/tool-plugin';
 import {
   getDashboardCapabilities,
-  getDefaultView,
   isSupportedHost,
   openLocalFileFromDashboard,
   supportsNativeOpenRuntime,
@@ -19,7 +18,7 @@ export function registerDashboardExtras(api: OpenClawPluginApi, deps: NativeOpen
       try {
         respond(true, await getDashboardCapabilities(api, params, deps));
       } catch {
-        respond(true, { nativeOpen: false, defaultView: getDefaultView(api) });
+        respond(true, { nativeOpen: false });
       }
     }, { scope: 'operator.read', profileAccess: 'required' });
 
@@ -41,20 +40,13 @@ export function registerDashboardExtras(api: OpenClawPluginApi, deps: NativeOpen
 const configSchema = {
   type: 'object',
   additionalProperties: false,
-  properties: {
-    defaultView: {
-      type: 'string',
-      enum: ['builtin', 'math'],
-      default: 'builtin',
-      description: 'Opt in to the plugin transcript on activation. Each browser can override this using the view actions.',
-    },
-  },
+  properties: {},
 };
 
 const plugin = {
   id: 'dashboard-extras',
   name: 'Dashboard Extras',
-  description: 'Independent mathematical Markdown and safe native file actions',
+  description: 'Seamless native conversation math and safe default-application file actions',
   configSchema: { jsonSchema: configSchema },
   register: registerDashboardExtras,
 };

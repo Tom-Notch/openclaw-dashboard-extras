@@ -1,157 +1,109 @@
-import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
-import http from "node:http";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+import { resolveHostPackage } from '../scripts/typecheck.mjs';
 
-// This host is entirely synthetic. It cannot access any Gateway, credential,
-// real session, user browser profile, or operating-system file-open command.
-const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "openclaw.plugin.json"), "utf8"));
-const entry = path.resolve(projectRoot, manifest.controlUi?.entry ?? "");
-assert.ok(entry.startsWith(`${projectRoot}${path.sep}dist${path.sep}control-ui${path.sep}`));
-const bundledJavaScript = fs.readFileSync(entry);
-const fixtureSource = String.raw`Inline $x^2+y^2=z^2$.
+// Real installed Dashboard assets, synthetic RPCs only. No running Gateway,
+// accounts, credentials, chats, persistent browser profile, or native opener.
+const project = fileURLToPath(new URL('../', import.meta.url));
+const hostPackage = resolveHostPackage();
+const uiRoot = path.join(hostPackage.root, 'dist/control-ui');
+const manifest = JSON.parse(fs.readFileSync(path.join(project, 'openclaw.plugin.json'), 'utf8'));
+const plugin = fs.readFileSync(path.join(project, manifest.controlUi.entry));
+const sessionKey = 'agent:fixture:native-regression';
+const workspace = '/fixture-workspace';
+const session = { key:sessionKey, sessionId:'fixture-incarnation', label:'Native conversation regression', displayName:'Native conversation regression', updatedAt:Date.now(), kind:'direct', channel:'webchat', model:'fixture', modelProvider:'fixture', spawnedCwd:workspace };
+const models = [{id:'fixture',name:'Fixture (no inference)',provider:'fixture',contextWindow:32000,reasoning:false}];
+const message = String.raw`Native conversation, no mode switch.
 
-Explicit inline \(e^{i\pi}+1=0\).
+Inline $x^2+y^2=z^2$ and \(e^{i\pi}+1=0\).
 
 $$\frac{1}{2}+\frac{1}{3}=\frac{5}{6}$$
 
 \[\frac{2}{3}\]
 
-Code stays literal: INLINE_CODE_FIXTURE. Prices: $5 to $10.
+Prices: $5 to $10. Literal code: CODE_FIXTURE.
 
-[Preview the canary](./reports/demo file.txt)`.replace("INLINE_CODE_FIXTURE", () => "`$code$`");
-const harness = `
-import plugin from '/plugin.js';
-const fixtureSource = ${JSON.stringify(fixtureSource)};
-const activation = new AbortController();
-let viewAbort = new AbortController();
-let view;
-const replacements = new Map();
-const actions = new Map();
-const listeners = new Set();
-const calls = [];
-const props = { sessionKey:'agent:fixture:canary',agentId:'fixture',messages:[
-  {role:'assistant',content:[{type:'text',text:fixtureSource}]},
-  {role:'assistant',content:[{type:'toolCall',name:'fixture_calculator',arguments:{expression:'2+2'}}]},
-],stream:null,loading:false};
-const host = {
-  apiVersion:1,pluginId:'dashboard-extras',signal:activation.signal,basePath:'',locale:'en',
-  connection:{connected:true,canRead:true,canWrite:true,canAdmin:true},
-  subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
-  async request(method,params){
-    calls.push({method,params:structuredClone(params)});
-    if(method==='dashboardExtras.capabilities')return{nativeOpen:true,sessionId:'fixture-incarnation',root:'/fixture-workspace',defaultView:'math'};
-    if(method==='sessions.files.get')return{sessionKey:props.sessionKey,root:'/fixture-workspace',file:{path:'reports/demo file.txt',name:'demo file.txt',kind:'read',missing:false,content:'BENIGN_FILE_PREVIEW',contentEncoding:'utf8',previewKind:'text'}};
-    if(method==='dashboardExtras.openLocalFile')return{opened:true};
-    throw new Error('Unexpected synthetic host request');
-  },
-  ui:{
-    registerReplacement(item){replacements.set(item.id,item);return()=>replacements.delete(item.id);},
-    registerPanel(){return()=>{};},
-    registerAction(item){
-      actions.set(item.id,item);
-      const button=document.createElement('button');button.textContent=item.label;
-      button.dataset.action=item.id;
-      button.onclick=()=>item.run({host,signal:activation.signal,sessionKey:props.sessionKey,agentId:props.agentId});
-      document.querySelector('#actions').append(button);
-      return()=>button.remove();
-    },
-    selectReplacement(surface,id){
-      if(surface!=='transcript')throw new Error('Unexpected replacement surface');
-      viewAbort.abort();view?.dispose();viewAbort=new AbortController();
-      const container=document.querySelector('#transcript');container.replaceChildren();
-      if(id===null){container.textContent='BUILTIN_TRANSCRIPT';return;}
-      const registration=replacements.get(id);if(!registration)throw new Error('Missing own replacement');
-      const context={host:{...host,signal:viewAbort.signal},props,signal:viewAbort.signal,presented:true,mountDefault(){throw new Error('The independent view must not mount built-in DOM');}};
-      view=registration.mount(container,context);
-    },
-  },
-};
-document.querySelector('#transcript').textContent='BUILTIN_TRANSCRIPT';
-await plugin.activate(host);
-window.syntheticProof={calls,host,props};
-window.fixtureReady=true;
-`;
-const html = '<!doctype html><html><head><meta charset="utf-8"><title>Dashboard Extras synthetic browser verification</title><style>body{margin:24px;font-family:system-ui}#actions{display:flex;gap:12px;margin-bottom:16px}textarea{width:100%;margin-top:16px;min-height:70px}</style></head><body><nav id="actions"></nav><main id="transcript"></main><textarea aria-label="Synthetic host-owned composer" placeholder="Host-owned composer remains outside the plugin"></textarea><script type="module" src="/harness.js"></script></body></html>';
-const server = http.createServer((request, response) => {
-  response.setHeader("Cache-Control", "no-store");
-  if (request.url === "/") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(html); }
-  else if (request.url === "/harness.js") { response.setHeader("Content-Type", "text/javascript; charset=utf-8"); response.end(harness); }
-  else if (request.url === "/plugin.js") { response.setHeader("Content-Type", "text/javascript; charset=utf-8"); response.end(bundledJavaScript); }
-  else if (request.url === "/favicon.ico") { response.writeHead(204); response.end(); }
-  else { response.writeHead(404); response.end(); }
+[Open a local file](./opaque.unlistedverylongsuffix)
+
+[Open extensionless file](./LICENSE) · [Open path with spaces](<./report with spaces.xyz>)
+
+[Ordinary web link](https://example.com)
+
+FENCE_FIXTURE`.replace('CODE_FIXTURE',()=>'`$never$`').replace('FENCE_FIXTURE','```js\nconst literal = "$not_math$";\n```');
+const history = [{role:'user',content:'Show the report.',timestamp:Date.now()-2000},{role:'assistant',content:[{type:'text',text:message}],timestamp:Date.now()-1000}];
+const entryUrl = '/__openclaw__/plugins/control-ui/dashboard-extras/fixture/index.js';
+const catalog = {revision:'fixture',diagnostics:[],plugins:[{pluginId:'dashboard-extras',name:'Dashboard Extras',revision:'fixture',entryUrl,styles:[]}]};
+const methods = ['agents.list','sessions.list','sessions.resolve','sessions.describe','chat.history','chat.startup','chat.metadata','models.list','sessions.files.list','sessions.files.get','plugins.controlUi.list','plugins.controlUi.report','dashboardExtras.capabilities','dashboardExtras.openLocalFile'];
+const calls=[];const socketEvents=[];
+const server=http.createServer((request,response)=>{
+ const pathname=new URL(request.url,'http://localhost').pathname;
+ response.setHeader('Cache-Control','no-store');
+ if(pathname===entryUrl){response.setHeader('Content-Type','text/javascript');response.end(plugin);return;}
+ if(pathname==='/control-ui-config.json'){response.setHeader('Content-Type','application/json');response.end(JSON.stringify({basePath:'',assistantAgentId:'fixture',assistantName:'Assistant',assistantAvatar:'',serverVersion:hostPackage.packageJson.version,pluginAssetsRequireAuth:false,localMediaPreviewRoots:[workspace],terminalEnabled:false,cliAgentsEnabled:false,embedSandbox:'scripts'}));return;}
+ if(pathname==='/favicon.ico'){response.writeHead(204);response.end();return;}
+ const filename=path.resolve(uiRoot,'.'+pathname);
+ if(filename.startsWith(uiRoot+path.sep)&&fs.existsSync(filename)&&fs.statSync(filename).isFile()){
+  const type={'.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.woff2':'font/woff2','.png':'image/png','.html':'text/html'}[path.extname(filename)]??'application/octet-stream';response.setHeader('Content-Type',type);response.end(fs.readFileSync(filename));return;
+ }
+ response.setHeader('Content-Type','text/html');response.end(fs.readFileSync(path.join(uiRoot,'index.html'),'utf8').replace('<head>','<head><base href="/">'));
 });
-await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-const address = server.address();
-assert.ok(address && typeof address !== "string");
-let browser;
-let context;
-let page;
-let stage = "launch-isolated-browser";
-const errors = [];
-try {
-  browser = await chromium.launch({ headless: true });
-  context = await browser.newContext({ viewport: { width: 1320, height: 1100 }, serviceWorkers: "block" });
-  page = await context.newPage();
-  page.on("pageerror", error => errors.push({ kind: "pageerror", name: error.name }));
-  page.on("console", message => { if (message.type() === "error") errors.push({ kind: "console-error" }); });
-  await page.goto(`http://127.0.0.1:${address.port}/`);
-  await page.waitForFunction(() => window.fixtureReady === true);
-  stage = "real-bundle-math-and-literal-content";
-  const math = page.locator("math");
-  assert.equal(await math.count(), 4, "all four delimiter styles render from original source");
-  stage = "math-fractions";
-  assert.equal(await page.locator("math mfrac").count(), 4);
-  stage = "literal-code";
-  assert.equal(await page.locator("code").filter({ hasText: "$code$" }).count(), 1);
-  stage = "literal-prices";
-  assert.equal(await page.getByText("Prices: $5 to $10.", { exact: false }).count(), 1);
-  stage = "readable-tool-message";
-  assert.equal(await page.getByText("toolCall: fixture_calculator", { exact: true }).count(), 1);
-  await page.getByRole("textbox", { name: "Synthetic host-owned composer" }).fill("UNSENT_SYNTHETIC_DRAFT");
-  stage = "preview-space-containing-file-without-native-launch";
-  await page.locator('a[data-file-path="./reports/demo file.txt"]').click();
-  await page.getByText("BENIGN_FILE_PREVIEW", { exact: true }).waitFor();
-  const countOpen = () => page.evaluate(() => window.syntheticProof.calls.filter(call => call.method === "dashboardExtras.openLocalFile").length);
-  assert.equal(await countOpen(), 0);
-  const previewRead = await page.evaluate(() => window.syntheticProof.calls.find(call => call.method === "sessions.files.get"));
-  assert.deepEqual(previewRead.params, { sessionKey: "agent:fixture:canary", agentId: "fixture", path: "./reports/demo file.txt" });
-  stage = "explicit-default-app-action-stub";
-  await page.getByRole("button", { name: "Open in Default Application", exact: true }).click();
-  await page.getByText("Opened in the default application.", { exact: true }).waitFor();
-  assert.equal(await countOpen(), 1);
-  const open = await page.evaluate(() => window.syntheticProof.calls.find(call => call.method === "dashboardExtras.openLocalFile"));
-  assert.deepEqual(open.params, { sessionKey: "agent:fixture:canary", agentId: "fixture", path: "reports/demo file.txt", expectedSessionId: "fixture-incarnation", expectedRoot: "/fixture-workspace" });
-  assert.equal(await page.getByRole("textbox", { name: "Synthetic host-owned composer" }).inputValue(), "UNSENT_SYNTHETIC_DRAFT");
-  const artifacts = path.join(projectRoot, "test-results");
-  fs.mkdirSync(artifacts, { recursive: true });
-  await page.screenshot({ path: path.join(artifacts, "browser-e2e.png"), fullPage: true });
-  stage = "built-in-restore-and-remembered-choice";
-  await page.getByRole("button", { name: "Use built-in transcript", exact: true }).last().click();
-  await page.getByText("BUILTIN_TRANSCRIPT", { exact: true }).waitFor();
-  await page.reload();
-  await page.waitForFunction(() => window.fixtureReady === true);
-  await page.getByText("BUILTIN_TRANSCRIPT", { exact: true }).waitFor();
-  assert.equal(await page.locator("math").count(), 0);
-  await page.getByRole("button", { name: "Use Math & Files", exact: true }).click();
-  await page.locator("math").first().waitFor();
-  await page.reload();
-  await page.waitForFunction(() => window.fixtureReady === true);
-  assert.equal(await page.locator("math").count(), 4);
-  assert.equal(await page.evaluate(() => window.syntheticProof.calls.some(call => /^chat\./.test(call.method))), false);
-  assert.deepEqual(errors, []);
-  const result = { status: "passed", data: "synthetic public host only", bundle: manifest.controlUi.entry, formulas: 4, fractions: 4, codeAndPricesPreserved: true, spaceContainingFilePreview: true, noNativeOpenOnPreview: true, explicitOpenPayloadVerified: true, realApplicationOpened: false, builtinRestoreAndPreferenceReload: true, syntheticComposerUntouched: true, pageErrors: [], consoleErrors: [], screenshot: "test-results/browser-e2e.png" };
-  fs.writeFileSync(path.join(artifacts, "browser-e2e.json"), JSON.stringify(result, null, 2) + "\n");
-  console.log(JSON.stringify(result));
-} catch (error) {
-  console.error(JSON.stringify({ status: "failed", stage, errorName: error?.name ?? "Error", ...(error?.name === "AssertionError" ? { actual: error.actual, expected: error.expected } : {}), errors }));
-  process.exitCode = 1;
-} finally {
-  await page?.goto("about:blank").catch(() => {});
-  await context?.close();
-  await browser?.close();
-  await new Promise(resolve => server.close(resolve));
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const origin=`http://127.0.0.1:${server.address().port}`;
+function reply(method,params){
+ if(method==='connect')return {type:'hello-ok',protocol:params.maxProtocol,server:{version:hostPackage.packageJson.version,connId:'fixture',bootId:'fixture'},features:{methods,events:[]},auth:{role:'operator',scopes:['operator.read','operator.write','operator.admin','operator.approvals','operator.pairing']},policy:{maxPayload:16000000,maxBufferedBytes:1048576,tickIntervalMs:30000},snapshot:{presence:[],sessionDefaults:{defaultAgentId:'fixture',mainKey:'main',mainSessionKey:sessionKey,modelConfigured:true,scope:'per-sender'}}};
+ if(method==='plugins.controlUi.list')return catalog;
+ if(method==='agents.list')return {agents:[{id:'fixture',name:'Assistant',identity:{name:'Assistant'},model:{primary:'fixture/fixture'},workspace,workspaceGit:false}],defaultId:'fixture',mainKey:'main',scope:'per-sender'};
+ if(method==='sessions.list')return {sessions:[session],count:1,ts:Date.now(),path:'',defaults:{model:'fixture',modelProvider:'fixture',contextTokens:32000}};
+ if(method==='sessions.resolve')return {ok:true,key:sessionKey,session};
+ if(method==='sessions.describe')return {session};
+ if(method==='chat.history'||method==='chat.startup')return {messages:history,sessionId:session.sessionId,sessionKey,sessionInfo:session,resolution:{ok:true,key:sessionKey},metadata:{models},thinkingLevel:null};
+ if(method==='chat.metadata')return {models,commands:[]};
+ if(method==='models.list')return {models};
+ if(method==='sessions.files.list')return {sessionKey,root:workspace,files:[],browser:{entries:[],path:''}};
+ if(method==='sessions.files.get')throw Error('Direct opening must not request a preview');
+ if(method==='dashboardExtras.capabilities')return {nativeOpen:true,sessionId:session.sessionId,root:workspace};
+ if(method==='dashboardExtras.openLocalFile')return {opened:true};
+ if(method==='sessions.groups.list')return {names:[],defaults:{},sectionOrder:[]};
+ if(method==='artifacts.list')return {artifacts:[]};
+ if(method==='plugins.controlUi.report')return {ok:true};
+ if(method==='chat.send')throw Error('The test must never send chat');
+ return {};
 }
+let browser,context,page,stage='launch';const errors=[];
+try{
+ browser=await chromium.launch({headless:true});context=await browser.newContext({viewport:{width:1440,height:1000},colorScheme:'dark',serviceWorkers:'block'});page=await context.newPage();page.setDefaultTimeout(25000);
+ await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+ await page.addInitScript(()=>{window.__OPENCLAW_NATIVE_CONTROL_AUTH__={gatewayUrl:`ws://${location.host}`};});
+ await page.routeWebSocket('**',socket=>{socketEvents.push('routed');socket.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.type!=='req')return;calls.push({method:frame.method,params:frame.params});try{socket.send(JSON.stringify({type:'res',id:frame.id,ok:true,payload:reply(frame.method,frame.params??{})}));}catch{socket.send(JSON.stringify({type:'res',id:frame.id,ok:false,error:{code:'INVALID_REQUEST',message:'Fixture request rejected'}}));}});setTimeout(()=>socket.send(JSON.stringify({type:'event',event:'connect.challenge',payload:{nonce:'synthetic-test-only',ts:Date.now()}})),100);});
+ page.on('pageerror',error=>errors.push({kind:'page',message:error.message}));page.on('console',message=>{if(message.type()==='error')errors.push({kind:'console',message:message.text()});});
+ stage='native-conversation';await page.goto(`${origin}/chat/fixture/native-regression`);await page.locator('[data-dashboard-extras-native] .chat-thread').waitFor();
+ stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===4);
+ assert.equal(await page.locator('.extras-shell').count(),0);assert.equal(await page.getByRole('button',{name:'Use Math & Files',exact:true}).count(),0);
+ assert.equal(await page.locator('math mfrac').count(),4);await page.locator('code').filter({hasText:'$never$'}).waitFor();await page.locator('a[href="https://example.com"]').waitFor();
+ const composer=page.locator('.agent-chat__composer-combobox > textarea');await composer.fill('UNSENT_DRAFT');
+ for(const [label,expected] of [['Open a local file','./opaque.unlistedverylongsuffix'],['Open extensionless file','./LICENSE'],['Open path with spaces','./report with spaces.xyz']]){
+  stage=`direct-local-file-${label}`;const before=calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length;
+  await page.locator('[data-dashboard-extras-native] a').filter({hasText:label}).click();
+  await page.waitForFunction(()=>!document.querySelector('a[aria-busy="true"]'));
+  assert.equal(calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length,before+1);
+  const open=calls.filter(x=>x.method==='dashboardExtras.openLocalFile').at(-1);
+  assert.equal(open.params.sessionKey,sessionKey);assert.equal(open.params.agentId,'fixture');
+  assert.equal(open.params.path.replace(/^\.\//,''),expected.replace(/^\.\//,''));
+  assert.equal(open.params.expectedSessionId,session.sessionId);assert.equal(open.params.expectedRoot,workspace);
+ }
+ assert.equal(calls.some(x=>x.method==='sessions.files.get'),false,'opening never depends on preview');
+ assert.equal(await page.locator('.sidebar-file-view').count(),0);
+ assert.equal(await composer.inputValue(),'UNSENT_DRAFT');
+ const artifacts=path.join(project,'test-results');fs.mkdirSync(artifacts,{recursive:true});await page.locator('openclaw-chat-pane').screenshot({path:path.join(artifacts,'native-browser.png')});
+ stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===4);
+ assert.equal(calls.some(x=>x.method==='chat.send'),false);assert.deepEqual(errors,[]);
+ const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:4,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
+ fs.writeFileSync(path.join(artifacts,'native-browser.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+}catch(error){
+ await page?.screenshot({path:path.join(project,'test-results/native-browser-failure.png')}).catch(()=>{});
+ console.error(JSON.stringify({status:'failed',stage,error:error.message,socketEvents,body:(await page.locator('body').innerText()).slice(-2500),methods:[...new Set(calls.map(x=>x.method))],reports:calls.filter(x=>x.method==='plugins.controlUi.report'),errors}));process.exitCode=1;
+}finally{await context?.close();await browser?.close();await new Promise(resolve=>server.close(resolve));}

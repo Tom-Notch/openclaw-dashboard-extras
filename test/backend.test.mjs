@@ -21,7 +21,7 @@ test('future host versions retain explicit read/admin profile authorization', as
     backend.registerDashboardExtras(api, { platform: 'darwin' });
     assert.deepEqual(methods.get('dashboardExtras.capabilities').policy, { scope: 'operator.read', profileAccess: 'required' });
     assert.deepEqual(methods.get('dashboardExtras.openLocalFile').policy, { scope: 'operator.admin', profileAccess: 'required' });
-    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities'), { nativeOpen: true, defaultView: 'builtin' });
+    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities'), { nativeOpen: true });
   }
 });
 
@@ -42,7 +42,7 @@ test('unsupported platform, missing runtime and missing SDK report unavailable',
       platform: mode === 'platform' ? 'linux' : 'darwin',
       ...(mode === 'sdk' ? { loadSdk: async () => undefined } : {}),
     });
-    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities'), { nativeOpen: false, defaultView: 'builtin' });
+    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities'), { nativeOpen: false });
     if (methods.has('dashboardExtras.openLocalFile')) {
       assert.equal((await invoke(methods, 'dashboardExtras.openLocalFile', request(workspace))).opened, false);
     }
@@ -53,22 +53,13 @@ test('scoped capabilities expose only current local session id and root', async 
   const { api, state, methods } = createApi(workspace);
   backend.registerDashboardExtras(api, { platform: 'darwin' });
   assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', { sessionKey: 'agent:main:test', agentId: 'main' }), {
-    nativeOpen: true, defaultView: 'builtin', sessionId: 'session-1', root: workspace,
+    nativeOpen: true, sessionId: 'session-1', root: workspace,
   });
   for (const params of [{ sessionKey: 'agent:main:test', agentId: 'other' }, { sessionKey: '' }, null, { agentId: 'main' }]) {
-    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', params), { nativeOpen: false, defaultView: 'builtin' });
+    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', params), { nativeOpen: false });
   }
   state.entry.execHost = 'node';
-  assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', { sessionKey: 'agent:main:test' }), { nativeOpen: false, defaultView: 'builtin' });
-});
-
-test('default view is explicit plugin configuration, including on non-macOS hosts', async () => {
-  for (const [pluginConfig, expected] of [[undefined, 'builtin'], [{ defaultView: 'math' }, 'math'], [{ defaultView: 'builtin' }, 'builtin'], [{ defaultView: 'invalid' }, 'builtin']]) {
-    const { api, methods } = createApi(workspace);
-    api.pluginConfig = pluginConfig;
-    backend.registerDashboardExtras(api, { platform: 'linux' });
-    assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities'), { nativeOpen: false, defaultView: expected });
-  }
+  assert.deepEqual(await invoke(methods, 'dashboardExtras.capabilities', { sessionKey: 'agent:main:test' }), { nativeOpen: false });
 });
 
 test('retargeting an allowed root during helper work revokes the old descriptor grant', async () => {

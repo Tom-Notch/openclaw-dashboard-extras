@@ -1,7 +1,7 @@
 {
   "id": "dashboard-extras",
   "name": "Dashboard Extras",
-  "description": "Independent mathematical Markdown and safe native file actions",
+  "description": "Seamless native conversation math and safe default-application file actions",
   "enabledByDefault": false,
   "activation": {
     "onStartup": true
@@ -9,21 +9,11 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "defaultView": {
-        "type": "string",
-        "enum": [
-          "builtin",
-          "math"
-        ],
-        "default": "builtin",
-        "description": "Opt in to the plugin transcript on activation. Each browser can override this using the view actions."
-      }
-    }
+    "properties": {}
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "controlUi": {
-    "entry": "dist/control-ui/d734e5d4817ab586857e92d063a56634e9c21295fe7cfa793dbb9a50446ccd37/index.js"
+    "entry": "dist/control-ui/009e0674a186f70929cb573ff361844d465a8163d8df409a134025a20d5127ec/index.js"
   },
   "contracts": {
     "tools": []

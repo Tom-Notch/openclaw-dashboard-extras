@@ -64,7 +64,7 @@ try {
   const expectedSources = (await collectSourceFiles(path.join(repositoryRoot, 'src'))).sort();
   assert.deepEqual(Object.keys(report).sort(), expectedSources, 'Coverage must contain all and only production TypeScript files.');
   // Detect the misleading 100%-with-zero-functions result produced by broken maps.
-  for (const name of ['index.ts', 'open-local-file.ts', 'math.ts', 'markdown.ts', 'transcript.ts']) {
+  for (const name of ['index.ts', 'open-local-file.ts', 'math.ts', 'native-math.ts', 'native-transcript.ts']) {
     const measured = report[path.join(repositoryRoot, 'src', name)];
     assert.ok(Object.keys(measured.fnMap).length > 0, `${name} must have measured production functions.`);
     assert.ok(Object.keys(measured.branchMap).length > 0, `${name} must have measured production branches.`);

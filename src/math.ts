@@ -419,27 +419,6 @@ export function extractMarkdownMath(source: string): ExtractedMarkdownMath {
   return { source: output.join(""), fragments };
 }
 
-/** Keeps the stable/tail streaming split outside complete display or inline math. */
-export function protectStreamingMarkdownSplit<
-  T extends { boundary: number; tailRepairStart: number | null },
->(source: string, split: T): T {
-  if (split.boundary <= 0 || split.boundary >= source.length) {
-    return split;
-  }
-  const containing = extractMarkdownMath(source).fragments.find(
-    (fragment) => split.boundary > fragment.start && split.boundary < fragment.end,
-  );
-  if (!containing) {
-    return split;
-  }
-  return {
-    ...split,
-    boundary: containing.start,
-    tailRepairStart:
-      split.tailRepairStart === null ? null : Math.min(split.tailRepairStart, containing.start),
-  };
-}
-
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
