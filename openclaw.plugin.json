@@ -1,0 +1,12 @@
+{
+  "id": "dashboard-extras",
+  "name": "Dashboard Extras",
+  "description": "Independent mathematical Markdown and safe local-file previews.",
+  "enabledByDefault": false,
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

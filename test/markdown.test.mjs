@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import { Window } from "happy-dom";
 
 const window = new Window();
+window.document.write("<!doctype html><html><body></body></html>");
 Object.assign(globalThis, { window, document: window.document });
 const bundle = await build({
   entryPoints: [new URL("../src/markdown.ts", import.meta.url).pathname],
