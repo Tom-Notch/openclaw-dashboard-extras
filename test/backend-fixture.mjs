@@ -15,7 +15,7 @@ export class FsSafeError extends Error { constructor(code) { super(code); this.c
 export function resolveLocalPathFromRootsSync({ filePath, roots, allowMissing, requireFile }) {
   let target;
   try { target = fs.realpathSync(filePath); }
-  catch (error) { if (allowMissing && error.code === 'ENOENT') target = path.resolve(filePath); else throw error; }
+  catch (error) { if (allowMissing && error.code === 'ENOENT') target = path.join(fs.realpathSync(path.dirname(filePath)), path.basename(filePath)); else throw error; }
   if (!roots.some(root => { const rel = path.relative(fs.realpathSync(root), target); return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel)); })) return undefined;
   if (requireFile && !fs.statSync(target).isFile()) throw new FsSafeError('not-file');
   return { path: target };
