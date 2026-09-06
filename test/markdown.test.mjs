@@ -1,18 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { build } from "esbuild";
 import { Window } from "happy-dom";
+import { importProductionModule } from "./helpers/load-production.mjs";
 
 const window = new Window();
 window.document.write("<!doctype html><html><body></body></html>");
 Object.assign(globalThis, { window, document: window.document });
-const bundle = await build({
+const { renderMarkdown, parseLocalFileTarget } = await importProductionModule({
   entryPoints: [new URL("../src/markdown.ts", import.meta.url).pathname],
   bundle: true, write: false, platform: "node", format: "esm", logLevel: "silent",
 });
-const { renderMarkdown, parseLocalFileTarget } = await import(
-  `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
-);
 function rendered(source) {
   const node = document.createElement("div");
   node.innerHTML = renderMarkdown(source);
@@ -99,4 +96,11 @@ test("adversarial placeholder prefixes do not cause quadratic rendering work", (
   const node = rendered(source);
   assert.equal(node.querySelectorAll("math").length, 1);
   assert.ok(performance.now() - started < 400, "bounded input must not monopolize a browser frame for a second");
+});
+
+test("oversized generated MathML remains readable source instead of huge DOM", () => {
+  const source = "$1" + "+1".repeat(8_000) + "$";
+  const node = rendered(source);
+  assert.equal(node.querySelectorAll("math").length, 0);
+  assert.match(node.textContent, /\$1\+1/);
 });
