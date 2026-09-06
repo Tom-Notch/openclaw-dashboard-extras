@@ -69,7 +69,15 @@ x+1
 $$
 Spacing same-paragraph after.
 
-FENCE_FIXTURE`.replace('CODE_FIXTURE',()=>'`$never$`').replace('FENCE_FIXTURE','```js\nconst literal = "$not_math$";\n```');
+$$\int_0^\infty \frac{e^{-x^2}}{1+x^2}\,dx$$
+
+$$\left(\frac{\frac{a}{b}}{\frac{c}{d}}\right)^{\sum_{i=1}^{n}x_i}$$
+
+$$\begin{pmatrix}a&b\\c&d\end{pmatrix}$$
+
+$$LONG_FORMULA$$
+
+FENCE_FIXTURE`.replace('LONG_FORMULA',()=>Array.from({length:80},(_,i)=>`x_${i+1}`).join('+')).replace('CODE_FIXTURE',()=>'`$never$`').replace('FENCE_FIXTURE','```js\nconst literal = "$not_math$";\n```');
 const history = [{role:'user',content:'Show the report.',timestamp:Date.now()-2000},{role:'assistant',content:[{type:'text',text:message}],timestamp:Date.now()-1000}];
 const entryUrl = '/__openclaw__/plugins/control-ui/dashboard-extras/fixture/index.js';
 const catalog = {revision:'fixture',diagnostics:[],plugins:[{pluginId:'dashboard-extras',name:'Dashboard Extras',revision:'fixture',entryUrl,styles:[]}]};
@@ -117,9 +125,35 @@ try{
  await page.routeWebSocket('**',socket=>{socketEvents.push('routed');socket.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.type!=='req')return;calls.push({method:frame.method,params:frame.params});try{socket.send(JSON.stringify({type:'res',id:frame.id,ok:true,payload:reply(frame.method,frame.params??{})}));}catch{socket.send(JSON.stringify({type:'res',id:frame.id,ok:false,error:{code:'INVALID_REQUEST',message:'Fixture request rejected'}}));}});setTimeout(()=>socket.send(JSON.stringify({type:'event',event:'connect.challenge',payload:{nonce:'synthetic-test-only',ts:Date.now()}})),100);});
  page.on('pageerror',error=>errors.push({kind:'page',message:error.message}));page.on('console',message=>{if(message.type()==='error')errors.push({kind:'console',message:message.text()});});
  stage='native-conversation';await page.goto(`${origin}/chat/fixture/native-regression`);await page.locator('[data-dashboard-extras-native] .chat-thread').waitFor();
- stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===10);
+ stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===14);
  assert.equal(await page.locator('.extras-shell').count(),0);assert.equal(await page.getByRole('button',{name:'Use Math & Files',exact:true}).count(),0);
- assert.equal(await page.locator('math mfrac').count(),4);await page.locator('code').filter({hasText:'$never$'}).waitFor();await page.locator('a[href="https://example.com"]').waitFor();
+ assert.equal(await page.locator('math mfrac').count(),8);await page.locator('code').filter({hasText:'$never$'}).waitFor();await page.locator('a[href="https://example.com"]').waitFor();
+ stage='horizontal-only-formula-overflow';
+ const formulaOverflow=()=>page.locator('[data-dashboard-extras-native] math[display="block"]').evaluateAll(nodes=>nodes.map(math=>{
+  const viewport=math.closest('[data-dashboard-extras-math]'),box=viewport.getBoundingClientRect();
+  const contentBoxes=[...math.querySelectorAll('*')].filter(node=>node.localName!=='annotation').map(node=>node.getBoundingClientRect()).filter(rect=>rect.width&&rect.height);
+  const wide=viewport.scrollWidth>viewport.clientWidth;
+  let firstReachable=true,lastReachable=true;
+  if(wide){
+   const glyphs=math.querySelectorAll('mi,mn,mo');viewport.scrollLeft=0;
+   firstReachable=glyphs[0].getBoundingClientRect().left>=box.left-1;
+   viewport.scrollLeft=viewport.scrollWidth;
+   lastReachable=glyphs[glyphs.length-1].getBoundingClientRect().right<=box.left+viewport.clientWidth+1;
+   viewport.scrollLeft=0;
+  }
+  return {clientHeight:viewport.clientHeight,scrollHeight:viewport.scrollHeight,wide,firstReachable,lastReachable,top:Math.min(...contentBoxes.map(rect=>rect.top))-box.top,bottom:Math.max(...contentBoxes.map(rect=>rect.bottom))-(box.top+viewport.clientHeight)};
+ }));
+ const checkOverflow=async()=>{
+  const samples=await formulaOverflow();assert.ok(samples.some(sample=>sample.wide),'exercise an actually overflowing long formula');
+  for(const sample of samples){
+   assert.ok(sample.scrollHeight<=sample.clientHeight,'formula must not have vertical scroll extent');
+   assert.ok(sample.top>=-1&&sample.bottom<=1,'fractions, scripts and matrix bounds must fit without clipping');
+   assert.ok(sample.firstReachable&&sample.lastReachable,'both ends of long math must be reachable horizontally');
+  }
+ };
+ await checkOverflow();
+ await page.setViewportSize({width:1000,height:1000});await checkOverflow();
+ await page.setViewportSize({width:1440,height:1000});
  stage='consistent-formula-base-size';
  const typography=()=>page.locator('[data-dashboard-extras-native] math').evaluateAll(nodes=>nodes.map(node=>({
   context:node.closest('h2')?'heading':node.closest('td')?'table':'body',
@@ -179,10 +213,11 @@ try{
  assert.equal(await page.locator('.sidebar-file-view').count(),0);
  assert.equal(await composer.inputValue(),'UNSENT_DRAFT');
  const artifacts=path.join(project,'test-results');fs.mkdirSync(artifacts,{recursive:true});await page.locator('openclaw-chat-pane').screenshot({path:path.join(artifacts,'native-browser.png')});
- stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===10);
+ stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===14);
+ await checkOverflow();
  for(const node of await typography())assert.equal(node.size,node.bodySize);
  assert.equal(calls.some(x=>x.method==='chat.send'),false);assert.deepEqual(errors,[]);
- const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:10,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,compactFormulaSpacing:spacing,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
+ const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:14,horizontalOnlyMathScrolling:true,mathBoundsUnclipped:true,wideFormulaEndsReachable:true,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,compactFormulaSpacing:spacing,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
  fs.writeFileSync(path.join(artifacts,'native-browser.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
 }catch(error){
  await page?.screenshot({path:path.join(project,'test-results/native-browser-failure.png')}).catch(()=>{});
