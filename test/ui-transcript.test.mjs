@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
+import { createContext, Script } from "node:vm";
 
 // Markdown has its own security/math suite. This fixture isolates UI ownership,
 // raw-source delivery, file actions, and asynchronous lifetime behavior.
@@ -32,9 +33,12 @@ const file = { sessionKey: "agent:main:test", root: "/workspace", file: { path: 
 const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve(); };
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 async function fixture(t, options = {}) {
-  const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
+  const window = new Window();
   window.markdownSources = [];
-  window.eval(await uiBundle());
+  // Execute only the locally built trusted module, not page scripts or message HTML.
+  const sandbox = createContext({ markdownSources: window.markdownSources }, { codeGeneration: { strings: false, wasm: false } });
+  new Script(await uiBundle()).runInContext(sandbox);
+  window.ExtrasUI = sandbox.ExtrasUI;
   window.document.body.innerHTML = '<div id="builtin">Built-in composer stays untouched</div><div id="plugin"></div>';
   const container = window.document.querySelector("#plugin");
   const abort = new AbortController();
@@ -44,7 +48,8 @@ async function fixture(t, options = {}) {
     apiVersion: 1, signal: abort.signal,
     connection: { connected: true, canRead: true, canWrite: true, canAdmin: options.canAdmin ?? true },
     request: async (method, params) => {
-      calls.push({ method, params });
+      // The real RPC boundary serializes data; clone across the VM realm as it does.
+      calls.push({ method, params: structuredClone(params) });
       if (options.request) return options.request(method, params);
       if (method === "dashboardExtras.capabilities") return { ...caps, nativeOpen: options.nativeOpen ?? true };
       if (method === "sessions.files.get") return structuredClone(file);
