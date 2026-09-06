@@ -8,8 +8,9 @@
     "test": "node --test test/*.test.mjs",
     "test:coverage": "node scripts/coverage.mjs",
     "test:e2e": "node test/browser.e2e.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
     "build": "node scripts/build.mjs",
-    "check": "npm test && npm run build && node scripts/scan.mjs"
+    "check": "npm test && npm run typecheck && npm run build && node scripts/scan.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -43,9 +44,11 @@
     "markdown-it": "^15.0.1"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "c8": "^12.0.0",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.14.0",
-    "playwright": "^1.63.0"
+    "playwright": "^1.63.0",
+    "typescript": "^7.0.2"
   }
 }

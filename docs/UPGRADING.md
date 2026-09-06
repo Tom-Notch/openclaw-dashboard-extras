@@ -20,7 +20,8 @@ npm pack --dry-run
 npm pack
 ```
 
-`check` runs tests, builds the backend and native UI, and scans the project.
+`check` runs tests, checks source types against the installed public SDK, builds
+the backend and native UI, and scans the project.
 `npm ci` reproduces the plugin's dependency lock; it does not pin the installed
 OpenClaw. `OPENCLAW_CLI` may select an existing CLI for the build without
 installing one. Inspect the generated archive, then pass its exact filename to
@@ -118,8 +119,9 @@ successful build. Backend changes still need the normal gateway restart.
 5. Check gateway/plugin diagnostics for new errors. A passing asset load alone
    is not proof that math and native opening work.
 
-The repository workflow runs check/build against a freshly installed
-`openclaw@latest` on pull requests, main-branch changes, manual dispatch, and a
+The repository workflow runs tests, strict public-SDK type checking, and builds
+against a freshly installed `openclaw@latest` on pull requests, main-branch
+changes, manual dispatch, and a
 daily schedule. It has no operator credentials, does not deploy, and does not
 open user documents. CI is a compatibility signal, not an unattended live
 upgrader. Check the actual workflow result; the presence of a workflow file is

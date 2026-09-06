@@ -60,6 +60,8 @@ openclaw gateway restart
 `--force` confirms the local, non-store source; it is not a safety-scanner
 bypass. If the installer requests capability or policy approval, inspect that
 specific report. Do not disable security checks to make installation pass.
+After reviewing and approving this plugin's declared capabilities, repeat the
+install with `openclaw plugins install --link . --force --accept-capabilities`.
 
 Keep the linked checkout at its chosen location. The plugin does not depend
 on a directory containing an OpenClaw version number. Refresh the Dashboard
@@ -81,7 +83,7 @@ setting. The public SDK cannot inspect another plugin's selected replacement;
 if multiple plugins auto-select transcripts, activation order can matter.
 
 If `openclaw` is not on the build process's PATH, use
-`OPENCLAW_CLI=/absolute/path/to/openclaw npm run build`. This is a local
+`OPENCLAW_CLI=/absolute/path/to/openclaw npm run check`. This is a local
 executable path, not a host-version selector.
 
 ## Using local file links
@@ -132,6 +134,7 @@ not silently rewrite unrelated configuration or launch services.
 
 ```sh
 npm test
+npm run typecheck
 npm run test:coverage
 npm run build
 npx playwright install chromium
@@ -143,8 +146,11 @@ are mocked; macOS tests also verify real descriptor-to-Foundation references
 without opening an application. Browser tests load the actual built plugin
 in an isolated browser, not a personal browser profile.
 
-`npm run check` runs tests, uses the installed OpenClaw's public native asset
+`npm run check` runs tests, strictly type-checks every source file against the
+installed OpenClaw's published SDK declarations, uses its public native asset
 builder, and scans the publication tree for credentials and personal paths.
+Both the type checker and builder resolve the installed CLI from `PATH` or
+`OPENCLAW_CLI`; neither downloads, selects, or upgrades the host.
 `npm audit` and an independent secret scan are additional release gates.
 The lockfile records reproducible plugin dependencies; it does not contain or
 freeze an OpenClaw installation.

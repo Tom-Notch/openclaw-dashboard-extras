@@ -41,7 +41,7 @@ jobs:
           node --version
           npm --version
           openclaw --version
-      - name: Check tests, build, and repository scan
+      - name: Check tests, public SDK types, build, and repository scan
         run: npm run check
       - name: Enforce production-only coverage
         run: npm run test:coverage
