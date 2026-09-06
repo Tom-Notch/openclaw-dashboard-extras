@@ -1,4 +1,5 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
+import { toolPluginMetadataSymbol, type ToolPluginMetadata } from 'openclaw/plugin-sdk/tool-plugin';
 import {
   getDashboardCapabilities,
   getDefaultView,
@@ -37,9 +38,37 @@ export function registerDashboardExtras(api: OpenClawPluginApi, deps: NativeOpen
   }
 }
 
-export default {
+const configSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    defaultView: {
+      type: 'string',
+      enum: ['builtin', 'math'],
+      default: 'builtin',
+      description: 'Opt in to the plugin transcript on activation. Each browser can override this using the view actions.',
+    },
+  },
+};
+
+const plugin = {
   id: 'dashboard-extras',
   name: 'Dashboard Extras',
   description: 'Independent mathematical Markdown and safe native file actions',
+  configSchema: { jsonSchema: configSchema },
   register: registerDashboardExtras,
 };
+
+// The official builder consumes this public metadata contract for both tool and
+// feature plugins. An empty tools list accurately describes our RPC-only backend.
+const metadata: ToolPluginMetadata = {
+  id: plugin.id,
+  name: plugin.name,
+  description: plugin.description,
+  activation: { onStartup: true },
+  configSchema,
+  tools: [],
+};
+Object.defineProperty(plugin, toolPluginMetadataSymbol, { value: metadata, enumerable: false });
+
+export default plugin;
