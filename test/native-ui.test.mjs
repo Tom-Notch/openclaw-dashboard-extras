@@ -77,35 +77,40 @@ test('host render boundary comments survive math spanning native markup',async t
  assert.equal(v.bubble.querySelectorAll('math').length,1);assert.match(v.bubble.innerHTML,/<!--native-part-->/);assert.match(v.bubble.innerHTML,/<!--native-end-->/);
 });
 
-test('native sidebar gets one explicit app action; preview alone never launches',async t=>{
- const v=await fixture(t);const side=v.sidebar('reports/demo file.txt');const editor=side.querySelector('#edit');await pause();
- const button=side.querySelector('[data-dashboard-extras-open]');assert.ok(button);assert.equal(button.disabled,false);assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);assert.equal(side.querySelector('#edit'),editor);
- button.click();await pause();const opened=v.calls.filter(x=>x.method==='dashboardExtras.openLocalFile');assert.equal(opened.length,1);assert.deepEqual(opened[0].params,{sessionKey:'agent:fixture:test',agentId:'fixture',path:'reports/demo file.txt',expectedSessionId:'incarnation',expectedRoot:'/workspace'});
- assert.equal(side.querySelectorAll('[data-dashboard-extras-open]').length,1);assert.equal(side.querySelector('#file-content').textContent,'NATIVE_PREVIEW');
+test('any local filename opens directly without a preview or extension allowlist',async t=>{
+ const v=await fixture(t);
+ for(const file of ['./opaque.unlistedverylongsuffix','./LICENSE','./archive.custom','/fixture-workspace/my report.xyz']){
+  v.setText(`[Open](<${file}>)`);const link=v.bubble.querySelector('a');assert.ok(link);
+  link.dispatchEvent(new v.w.MouseEvent('click',{bubbles:true,cancelable:true,button:0}));await pause();
+  const request=v.calls.filter(x=>x.method==='dashboardExtras.openLocalFile').at(-1);assert.ok(request,'file click must directly call the OS-open RPC');assert.equal(request.params.path,file);assert.equal(request.params.sessionKey,'agent:fixture:test');assert.equal(request.params.expectedSessionId,'incarnation');
+ }
+ assert.equal(v.calls.some(x=>x.method==='sessions.files.get'),false,'opening must not depend on Dashboard preview support');
+ assert.equal(v.w.document.querySelector('#side').childElementCount,0);
 });
 
-test('stale session incarnation or revoked admin prevents opening',async t=>{
- for(const revoke of ['session','admin']){
- const v=await fixture(t);const side=v.sidebar();await pause();const b=side.querySelector('[data-dashboard-extras-open]');assert.ok(b);
- if(revoke==='session')v.caps.sessionId='new-incarnation';else v.host.connection.canAdmin=false;
- b.click();await pause();assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);
+test('web links, session links, modifier clicks and displaying messages never launch a file',async t=>{
+ const v=await fixture(t);v.setText('[Web](https://example.com) [Mail](mailto:example@example.com) [File](./report.any)');await pause();assert.equal(v.calls.length,0);
+ for(const link of v.bubble.querySelectorAll('a'))link.dispatchEvent(new v.w.MouseEvent('click',{bubbles:true,cancelable:true,button:0,altKey:link.textContent==='File'}));
+ await pause();assert.equal(v.calls.length,0);
+});
+
+test('file click retains literal masked paths and never guesses another user',async t=>{
+ const v=await fixture(t);v.setText('[Old](/fixture-workspace/***/report.pdf)');v.bubble.querySelector('a').click();await pause();
+ assert.equal(v.calls.find(x=>x.method==='dashboardExtras.openLocalFile').params.path,'/fixture-workspace/***/report.pdf');
+});
+
+test('revoked permission, changed session and aborted late work cannot open a file',async t=>{
+ for(const revoke of ['admin','session','abort']){
+  let release;const delayed=new Promise(r=>release=r);const v=await fixture(t,{request:async method=>{if(method==='dashboardExtras.capabilities')return delayed;return {opened:true};}});
+  v.setText('[File](./report)');v.bubble.querySelector('a').click();
+  if(revoke==='admin')v.host.connection.canAdmin=false;
+  if(revoke==='session')v.handle.update({...v.context,props:{...v.context.props,sessionKey:'agent:fixture:other'}});
+  if(revoke==='abort')v.abort.abort();
+  release({nativeOpen:true,sessionId:'incarnation',root:'/workspace'});await pause();assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);
  }
 });
 
-test('late preview response cannot attach action to a different file',async t=>{
- let release;const delayed=new Promise(r=>release=r);const v=await fixture(t,{request:async(method)=>{if(method==='dashboardExtras.capabilities')return delayed;throw Error('unexpected');}});
- const side=v.sidebar();await pause();side.replaceChildren();release({nativeOpen:true,sessionId:'old',root:'/workspace'});await pause();assert.equal(side.querySelector('[data-dashboard-extras-open]'),null);
-});
-
-test('aborting retires observers and native actions without touching unrelated DOM',async t=>{
- const v=await fixture(t);v.sidebar();await pause();v.abort.abort();await pause();assert.equal(v.w.document.querySelector('[data-dashboard-extras-open]'),null);assert.equal(v.w.document.querySelector('#outside').textContent,'unrelated');
-});
-
-test('image and unsupported-document previews keep native content and offer the same explicit action',async t=>{
- for(const kind of ['image','markdown']) {
- const v=await fixture(t);const side=v.w.document.querySelector('#side');const panel=v.w.document.createElement('openclaw-chat-detail-panel');
- panel.content=kind==='image'?{kind,rawText:'picture.png',src:'data:image/png;base64,fixture'}:{kind,rawText:'This file is not previewable inline.\n\n- Path: `report.pdf`'};
- panel.innerHTML='<div class="sidebar-panel"><div class="sidebar-content"><article class="native-media">Native preview</article></div></div>';side.append(panel);const content=panel.querySelector('.native-media');await pause();
- const b=panel.querySelector('[data-dashboard-extras-open]');assert.ok(b,'native image/PDF previews must support explicit default-app opening');assert.equal(panel.querySelector('.native-media'),content);assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);b.click();await pause();assert.equal(v.calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length,1);
- }
+test('double clicks coalesce and unavailable native opening reports an inline failure',async t=>{
+ const v=await fixture(t,{request:async method=>method==='dashboardExtras.capabilities'?{nativeOpen:false}:{opened:true}});v.setText('[File](./report)');const link=v.bubble.querySelector('a');link.click();link.click();await pause();
+ assert.equal(v.calls.filter(x=>x.method==='dashboardExtras.capabilities').length,1);assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);assert.ok(v.bubble.querySelector('[role="status"]'));assert.equal(v.w.document.querySelector('textarea').value,'unsent draft');
 });
