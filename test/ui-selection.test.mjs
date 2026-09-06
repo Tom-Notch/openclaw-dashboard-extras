@@ -1,25 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContext, Script } from "node:vm";
-import { build } from "esbuild";
+import { buildProductionArtifact } from "./helpers/load-production.mjs";
 
 const preferenceKey = "openclaw-dashboard-extras.transcript.v1";
 let bundle;
 async function plugin() {
-  bundle ??= build({
+  bundle ??= buildProductionArtifact({
     entryPoints: [new URL("../src/control-ui.ts", import.meta.url).pathname],
     bundle: true, write: false, platform: "browser", format: "iife", globalName: "Entry",
     plugins: [{ name: "view-boundary", setup(builder) {
       builder.onResolve({ filter: /^\.\/transcript\.ts$/ }, () => ({ path: "views", namespace: "fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export function mountTranscript() {} export function mountFilePanel() {}" }));
     } }],
-  }).then(result => result.outputFiles[0].text);
+  });
   return bundle;
 }
 async function activate({ preference, defaultView = "builtin", delayed, apiVersion = 1 } = {}) {
   const values = new Map(preference ? [[preferenceKey, preference]] : []);
   const sandbox = createContext({ localStorage: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) } }, { codeGeneration: { strings: false, wasm: false } });
-  new Script(await plugin()).runInContext(sandbox);
+  const artifact = await plugin();
+  new Script(artifact.code, { filename: artifact.path }).runInContext(sandbox);
   const selections = [];
   const actions = [];
   const registrations = [];

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { build } from "esbuild";
+import { buildProductionArtifact } from "./helpers/load-production.mjs";
 import { Window } from "happy-dom";
 import { createContext, Script } from "node:vm";
 
@@ -17,7 +17,7 @@ export function parseLocalFileTarget(value) {
 }`;
 let bundlePromise;
 function uiBundle() {
-  bundlePromise ??= build({
+  bundlePromise ??= buildProductionArtifact({
     entryPoints: [new URL("../src/transcript.ts", import.meta.url).pathname],
     bundle: true, write: false, platform: "browser", format: "iife", globalName: "ExtrasUI",
     logLevel: "silent",
@@ -25,7 +25,7 @@ function uiBundle() {
       builder.onResolve({ filter: /^\.\/markdown\.ts$/ }, () => ({ path: "fixture", namespace: "markdown-fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "markdown-fixture" }, () => ({ contents: markdownFixture }));
     } }],
-  }).then(result => result.outputFiles[0].text);
+  });
   return bundlePromise;
 }
 const caps = { nativeOpen: true, sessionId: "incarnation-a", root: "/workspace" };
@@ -37,7 +37,8 @@ async function fixture(t, options = {}) {
   window.markdownSources = [];
   // Execute only the locally built trusted module, not page scripts or message HTML.
   const sandbox = createContext({ markdownSources: window.markdownSources }, { codeGeneration: { strings: false, wasm: false } });
-  new Script(await uiBundle()).runInContext(sandbox);
+  const artifact = await uiBundle();
+  new Script(artifact.code, { filename: artifact.path }).runInContext(sandbox);
   window.ExtrasUI = sandbox.ExtrasUI;
   window.document.body.innerHTML = '<div id="builtin">Built-in composer stays untouched</div><div id="plugin"></div>';
   const container = window.document.querySelector("#plugin");
