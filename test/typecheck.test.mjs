@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
-import { resolveHostPackage, resolvePublicSdkTypePaths } from '../scripts/typecheck.mjs';
+import { resolveHostPackage, resolvePublicSdkTypePaths, typecheck } from '../scripts/typecheck.mjs';
 
 const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-extras-typecheck-'));
 after(() => fs.rm(fixture, { recursive: true, force: true }));
@@ -58,4 +59,28 @@ test('type paths come only from existing confined public export declarations', a
   resolved.packageJson.exports['./plugin-sdk/symlink'] = { types: './public-types/escape.d.ts' };
   assert.throws(() => resolvePublicSdkTypePaths(resolved, ['openclaw/plugin-sdk/symlink']), /public type export/);
   assert.throws(() => resolvePublicSdkTypePaths(resolved, ['openclaw/dist/private.js']), /public SDK import/);
+});
+
+test('uses the public compiler CLI with absolute config and never passes a signaled process', async () => {
+  const host = await makeHost('compiler-host');
+  const resolved = resolveHostPackage({ cli: host.cli });
+  delete resolved.packageJson.exports['./plugin-sdk/unsafe'];
+  const root = path.join(fixture, 'compiler-project');
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  await fs.writeFile(path.join(root, 'src', 'example.ts'), '// "openclaw/private" is only a comment\nimport type { Host } from "openclaw/plugin-sdk/control-ui";');
+  let configFile;
+  const run = (_command, args, options) => {
+    assert.equal(options.cwd, root);
+    assert.equal(options.shell, false);
+    configFile = args[args.indexOf('--project') + 1];
+    const config = JSON.parse(readFileSync(configFile, 'utf8'));
+    assert.ok(config.files.every(file => path.isAbsolute(file)));
+    assert.equal(config.compilerOptions.noEmit, true);
+    assert.ok(config.compilerOptions.paths['openclaw/plugin-sdk/control-ui']);
+    assert.equal(config.compilerOptions.paths['openclaw/plugin-sdk/runtime-only'], undefined);
+    return { status: 0 };
+  };
+  assert.equal(await typecheck({ root, host: resolved, run }), true);
+  await assert.rejects(fs.access(configFile));
+  assert.equal(await typecheck({ root, host: resolved, run: () => ({ status: 0, signal: 'SIGTERM' }) }), false);
 });
