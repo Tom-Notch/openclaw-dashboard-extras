@@ -5,14 +5,65 @@ const markdown = new MarkdownIt({ html: false, breaks: true });
 const excluded = 'pre,code,a,button,textarea,script,style,math,[data-dashboard-extras-math],.mermaid';
 const compact = (text: string) => text.replace(/\s/gu, '');
 const MAX_SOURCE = 96_000;
+const inlineFormatting = /^(em|strong|s|del|span|sub|sup)$/u;
+type SpacingState = { source: string | null; hidden: Map<HTMLElement, { display: string; priority: string }> };
+const spacingStates = new WeakMap<HTMLElement, SpacingState>();
+
+function emptyRemnant(node: Node, state: SpacingState): boolean {
+  if (node.nodeType === 3) return !node.textContent?.trim();
+  if (node.nodeType === 8) return true; // Retain native/Lit ownership markers.
+  if (node.nodeType !== 1) return false;
+  const element = node as HTMLElement;
+  if (element.localName === 'br') return state.hidden.has(element) && element.style.display === 'none';
+  if (element.localName !== 'p' && !inlineFormatting.test(element.localName)) return false;
+  return [...node.childNodes].every(child => emptyRemnant(child, state));
+}
+
+function restoreSpacing(element: HTMLElement, previous: { display: string; priority: string }): void {
+  // Do not overwrite a newer style assigned by the host.
+  if (element.style.display !== 'none' || element.style.getPropertyPriority('display')) return;
+  if (previous.display) element.style.setProperty('display', previous.display, previous.priority);
+  else element.style.removeProperty('display');
+}
+
+function suppressSpacing(element: HTMLElement, state: SpacingState): void {
+  if (!state.hidden.has(element)) state.hidden.set(element, {
+    display: element.style.getPropertyValue('display'), priority: element.style.getPropertyPriority('display'),
+  });
+  element.style.setProperty('display', 'none');
+}
+
+/** A display formula already supplies the line boundary next to its delimiters. */
+function adjacentBreak(node: Node, side: 'previousSibling' | 'nextSibling', content: HTMLElement): HTMLElement | null {
+  let cursor = node;
+  while (cursor.parentNode) {
+    let neighbor = cursor[side];
+    while (neighbor && (neighbor.nodeType === 8 || (neighbor.nodeType === 3 && !neighbor.textContent?.trim()))) neighbor = neighbor[side];
+    if (neighbor) return neighbor.nodeType === 1 && (neighbor as Element).localName === 'br' ? neighbor as HTMLElement : null;
+    const parent = cursor.parentElement;
+    if (!parent || parent === content || !inlineFormatting.test(parent.localName)) break;
+    cursor = parent;
+  }
+  return null;
+}
 
 /** A bounded adapter over displayed message text, never a replacement Markdown renderer. */
 export function enhanceNativeMath(bubble: HTMLElement): void {
   const source = bubble.getAttribute('data-message-text');
+  let spacing = spacingStates.get(bubble);
+  if (spacing) {
+    for (const [element, previous] of spacing.hidden) {
+      if (spacing.source !== source || !bubble.contains(element) || (element.localName === 'p' && !emptyRemnant(element, spacing))) {
+        restoreSpacing(element, previous); spacing.hidden.delete(element);
+      }
+    }
+    spacing.source = source;
+  }
   if (!source || source.length > MAX_SOURCE || (source.match(/\$|\\[([]|`/gu)?.length ?? 0) > 2_048) return;
   const document = bubble.ownerDocument;
   const fragments = extractMarkdownMath(source).fragments;
   if (!fragments.length) return;
+  if (!spacing) { spacing = { source, hidden: new Map() }; spacingStates.set(bubble, spacing); }
   for (const content of bubble.querySelectorAll<HTMLElement>('.chat-text')) {
     if (content.closest('[data-message-text]') !== bubble) continue;
     for (const fragment of fragments) {
@@ -42,6 +93,15 @@ export function enhanceNativeMath(bubble: HTMLElement): void {
       const rendered = document.createElement('template');
       rendered.innerHTML = restoreMarkdownMath(fragment.token, [fragment]);
       if (!rendered.content.querySelector('math')) continue;
+      // Inspect the original range before changing text. Only its own layout
+      // remnants are suppressed; unrelated prose and line breaks stay native.
+      const range = document.createRange();
+      range.setStart(first.node, first.offset); range.setEnd(last.node, last.offset + 1);
+      const remnants = [...content.querySelectorAll<HTMLElement>('br,p')].filter(node => range.intersectsNode(node));
+      const boundaries = fragment.display ? [
+        !(first.node.textContent ?? '').slice(0, first.offset).trim() ? adjacentBreak(first.node, 'previousSibling', content) : null,
+        !(last.node.textContent ?? '').slice(last.offset + 1).trim() ? adjacentBreak(last.node, 'nextSibling', content) : null,
+      ] : [];
       const span = document.createElement('span');
       span.dataset.dashboardExtrasMath = '';
       // One formula baseline follows the user's live chat-size setting, not
@@ -49,7 +109,9 @@ export function enhanceNativeMath(bubble: HTMLElement): void {
       span.style.fontSize = 'var(--chat-text-size, 1em)';
       span.append(rendered.content);
       if (fragment.display) {
-        span.style.display = 'block'; span.style.overflowX = 'auto'; span.style.padding = '0.65em 0'; span.style.textAlign = 'center';
+        // Collapsible margins share native paragraph spacing instead of adding
+        // padding to it. Same-paragraph display math still gets a small gap.
+        span.style.display = 'block'; span.style.overflowX = 'auto'; span.style.marginBlock = '0.5em'; span.style.textAlign = 'center';
       }
       // Never delete native elements or Lit part-boundary comments. Native
       // streaming, syntax highlighting, copy buttons and keyed rows keep owners.
@@ -63,6 +125,12 @@ export function enhanceNativeMath(bubble: HTMLElement): void {
         last.node.textContent = (last.node.textContent ?? '').slice(last.offset + 1);
         for (const node of nodes.slice(1, -1)) node.textContent = '';
         first.node.parentNode?.insertBefore(span, first.node.nextSibling);
+      }
+      for (const node of [...remnants.filter(node => node.localName === 'br'), ...boundaries]) {
+        if (node) suppressSpacing(node, spacing);
+      }
+      for (const node of remnants) {
+        if (node.localName === 'p' && emptyRemnant(node, spacing)) suppressSpacing(node, spacing);
       }
     }
   }
