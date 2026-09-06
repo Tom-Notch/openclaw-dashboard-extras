@@ -35,7 +35,7 @@ async function fixture(t, options = {}) {
   assert.equal(mounts,1,'the real native transcript must be mounted, not replaced with plugin messages');
   const bubble=container.querySelector('#bubble');
   const setText=source=>{bubble.dataset.messageText=source;bubble.querySelector('.chat-text').innerHTML=plain.render(source);};
-  const sidebar=(path='demo.txt')=>{const side=w.document.querySelector('#side'); side.innerHTML='<section class="sidebar-file-view"><div class="sidebar-file-view__path-bar"><span class="sidebar-file-view__path"></span><div class="sidebar-file-view__actions"><button id="edit">Edit</button></div></div><pre id="file-content">NATIVE_PREVIEW</pre></section>';side.querySelector('.sidebar-file-view__path').setAttribute('title',path);side.querySelector('.sidebar-file-view__path').textContent=path;return side;};
+  const sidebar=(path='demo.txt')=>{const side=w.document.querySelector('#side'); side.innerHTML='<section class="sidebar-file-view"><div class="sidebar-file-view__path-bar"><span class="sidebar-file-view__path"></span><div class="sidebar-file-view__actions"><button id="edit">Edit</button></div></div><pre id="file-content">NATIVE_PREVIEW</pre><div class="sidebar-file-view__footer"><button id="raw">View Raw Text</button></div></section>';side.querySelector('.sidebar-file-view__path').setAttribute('title',path);side.querySelector('.sidebar-file-view__path').textContent=path;return side;};
   return {w,container,bubble,setText,sidebar,handle,context,host,caps,calls,actions,selections,listeners,abort,unmounts:()=>unmounts};
 }
 
@@ -99,4 +99,13 @@ test('late preview response cannot attach action to a different file',async t=>{
 
 test('aborting retires observers and native actions without touching unrelated DOM',async t=>{
  const v=await fixture(t);v.sidebar();await pause();v.abort.abort();await pause();assert.equal(v.w.document.querySelector('[data-dashboard-extras-open]'),null);assert.equal(v.w.document.querySelector('#outside').textContent,'unrelated');
+});
+
+test('image and unsupported-document previews keep native content and offer the same explicit action',async t=>{
+ for(const kind of ['image','markdown']) {
+ const v=await fixture(t);const side=v.w.document.querySelector('#side');const panel=v.w.document.createElement('openclaw-chat-detail-panel');
+ panel.content=kind==='image'?{kind,rawText:'picture.png',src:'data:image/png;base64,fixture'}:{kind,rawText:'This file is not previewable inline.\n\n- Path: `report.pdf`'};
+ panel.innerHTML='<div class="sidebar-panel"><div class="sidebar-content"><article class="native-media">Native preview</article></div></div>';side.append(panel);const content=panel.querySelector('.native-media');await pause();
+ const b=panel.querySelector('[data-dashboard-extras-open]');assert.ok(b,'native image/PDF previews must support explicit default-app opening');assert.equal(panel.querySelector('.native-media'),content);assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);b.click();await pause();assert.equal(v.calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length,1);
+ }
 });
