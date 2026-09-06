@@ -1,4 +1,9 @@
 import { build } from 'esbuild';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { after } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 // Synthetic SDK contracts: never import the operator's installed host or state.
 const sdkFixture = `
@@ -32,16 +37,27 @@ export async function openLocalFileSafely({ filePath }) {
 }
 `;
 
-export async function loadBackend() {
-  const result = await build({
+export async function loadBackend({ mockChildProcess = false } = {}) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-extras-test-build-'));
+  after(() => fs.rm(directory, { recursive: true, force: true }));
+  const outfile = path.join(directory, 'backend.mjs');
+  await build({
     entryPoints: [new URL('../src/index.ts', import.meta.url).pathname],
-    bundle: true, write: false, platform: 'node', format: 'esm', logLevel: 'silent',
+    bundle: true, outfile, sourcemap: 'inline', platform: 'node', format: 'esm', logLevel: 'silent',
     plugins: [{ name: 'synthetic-sdk', setup(builder) {
+      if (mockChildProcess) {
+        builder.onResolve({ filter: /^node:child_process$/ }, () => ({ path: 'child-process', namespace: 'test-process' }));
+        builder.onLoad({ filter: /.*/, namespace: 'test-process' }, () => ({
+          contents: `export const spawn = (...args) => globalThis.__dashboardExtrasTestProcess.spawn(...args);
+            export const execFile = (...args) => globalThis.__dashboardExtrasTestProcess.execFile(...args);`,
+          loader: 'js',
+        }));
+      }
       builder.onResolve({ filter: /^openclaw\/plugin-sdk\// }, args => ({ path: args.path, namespace: 'sdk' }));
       builder.onLoad({ filter: /.*/, namespace: 'sdk' }, () => ({ contents: sdkFixture, loader: 'js' }));
     } }],
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+  return import(pathToFileURL(outfile).href);
 }
 
 export function createApi(root, options = {}) {
