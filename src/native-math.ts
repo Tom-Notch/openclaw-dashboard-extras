@@ -44,6 +44,9 @@ export function enhanceNativeMath(bubble: HTMLElement): void {
       if (!rendered.content.querySelector('math')) continue;
       const span = document.createElement('span');
       span.dataset.dashboardExtrasMath = '';
+      // One formula baseline follows the user's live chat-size setting, not
+      // incidental heading/table sizes. MathML still owns scripts and TeX sizes.
+      span.style.fontSize = 'var(--chat-text-size, 1em)';
       span.append(rendered.content);
       if (fragment.display) {
         span.style.display = 'block'; span.style.overflowX = 'auto'; span.style.padding = '0.65em 0'; span.style.textAlign = 'center';
