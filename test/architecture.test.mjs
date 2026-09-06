@@ -116,7 +116,8 @@ test("browser contributions are optional and native RPC authority stays explicit
   assert.doesNotMatch(browser, /\bregister(?:Panel|Action)\s*\(/);
   const adapter = readFileSync(path.join(sourceRoot, "native-transcript.ts"), "utf8");
   assert.match(adapter, /initial\.mountDefault\(native\)/);
-  assert.match(adapter, /container\.closest<HTMLElement>\('openclaw-chat-pane'\)/);
+  assert.match(adapter, /observer\.observe\(native,/);
+  assert.doesNotMatch(adapter, /sessions\.files\.get|previewKind|sidebar-file-view/);
   for (const method of ["dashboardExtras.capabilities", "dashboardExtras.openLocalFile"]) {
     assert.ok(backend.includes(method), `missing scoped RPC: ${method}`);
   }

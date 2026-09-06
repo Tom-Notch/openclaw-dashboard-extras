@@ -11,7 +11,7 @@ const pause = () => new Promise(resolve => setTimeout(resolve, 25));
 async function fixture(t, options = {}) {
   bundled ??= buildProductionArtifact({ entryPoints: ['src/control-ui.ts'], platform: 'browser', format: 'iife', globalName: 'Plugin' });
   const w = new Window();
-  const sandbox = createContext({ window:w, document:w.document, navigator:w.navigator, MutationObserver:w.MutationObserver, Node:w.Node, Element:w.Element, HTMLElement:w.HTMLElement, localStorage:w.localStorage, atob, btoa, setTimeout, clearTimeout, queueMicrotask }, { codeGeneration: { strings:false, wasm:false } });
+  const sandbox = createContext({ window:w, document:w.document, navigator:w.navigator, MutationObserver:w.MutationObserver, Node:w.Node, Element:w.Element, HTMLElement:w.HTMLElement, localStorage:w.localStorage, atob, btoa, URL, setTimeout, clearTimeout, queueMicrotask }, { codeGeneration: { strings:false, wasm:false } });
   const artifact = await bundled;
   new Script(artifact.code, { filename:artifact.path }).runInContext(sandbox);
   w.document.body.innerHTML = '<openclaw-chat-pane><div id="native"></div><textarea aria-label="composer">unsent draft</textarea><div id="side"></div></openclaw-chat-pane><aside id="outside">unrelated</aside>';
