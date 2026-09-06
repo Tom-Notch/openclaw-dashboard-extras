@@ -11,7 +11,7 @@
     "additionalProperties": false,
     "properties": {}
   },
-  "version": "0.2.2",
+  "version": "0.2.3",
   "controlUi": {
     "entry": "dist/control-ui/08406b80cd1a8f41574a8de8dca3e73f132cca892a12abc42a38314884920118/index.js"
   },

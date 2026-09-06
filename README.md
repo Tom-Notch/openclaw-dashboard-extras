@@ -18,6 +18,8 @@ buttons, the composer, history, and file previews remain owned by OpenClaw.
   hierarchy and explicit TeX size commands; it does not flatten all glyphs.
   Multiline TeX does not leave source line breaks or empty paragraphs behind
   the rendered formula. Surrounding prose retains its normal spacing.
+  Display formulas grow to their natural height without vertical scrollbars;
+  only genuinely wide formulas scroll horizontally.
 - **Click any local file link → the Gateway host's system default application.**
   No file-extension allowlist, preview-kind detection, or Dashboard file-read
   request. Files without extensions work too. The OS decides which app to use.
@@ -127,8 +129,9 @@ npm run test:e2e
 
 `test:e2e` serves the **installed OpenClaw's unmodified production Dashboard
 assets** in isolated Chromium with synthetic RPCs. It checks math in native
-bubbles, arbitrary and extensionless direct-file payloads, untouched drafts,
-and reload without a mode switch. It never accesses a running Gateway, accounts,
+bubbles, unclipped fractions/scripts/matrices, horizontal-only scrolling with
+both ends of long formulas reachable, arbitrary and extensionless direct-file
+payloads, untouched drafts, and reload without a mode switch. It never accesses a running Gateway, accounts,
 real chats, the user's browser profile, or an OS opener. Latest-host macOS/Linux
 CI runs daily; it does not upgrade or deploy to anyone's machine.
 

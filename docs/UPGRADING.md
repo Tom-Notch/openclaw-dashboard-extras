@@ -63,6 +63,9 @@ name does not imply an npm release already exists.
    formulas and stream a partial formula to completion.
    Compare the same display formula written on one line, several lines, and
    with an internal blank line: source layout must not leave extra empty rows.
+   Fractions, scripts and matrices must fit vertically without scrollbars or
+   clipping. An overwide formula must scroll horizontally all the way to both
+   ends; repeat at a narrower viewport and a larger chat-text size.
 3. Check native message groups, tool disclosures, copy/reply buttons, history,
    web links, code blocks and unsent composer text. No plugin title or second
    scrollable transcript should appear.

@@ -64,6 +64,14 @@ math also replaces its immediate delimiter line boundaries. Small collapsible
 margins share native paragraph spacing instead of adding padding on top of it.
 Unrelated prose breaks, native elements and Lit markers retain their owners.
 
+Display wrappers explicitly use horizontal `auto` and vertical `hidden` overflow.
+Otherwise CSS makes both axes `auto`, and native MathML's extra font-metric
+scroll extent can produce a vertical scrollbar even when the formula fits.
+There is no fixed/max height or compensating padding: MathML determines the
+full equation height. Browser checks separately verify the absence of vertical
+scrollbars, unclipped formula bounds, and access to both ends of wide formulas
+at different viewport widths and chat font sizes.
+
 ### Direct file actions and lifetime
 
 The click handler runs only inside this mounted native transcript. It uses the
