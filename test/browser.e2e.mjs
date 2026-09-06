@@ -39,6 +39,36 @@ Prices: $5 to $10. Literal code: CODE_FIXTURE.
 
 [Ordinary web link](https://example.com)
 
+Spacing one-line before.
+
+$$x+1$$
+
+Spacing one-line after.
+
+Spacing multiline before.
+
+$$
+x+1
+$$
+
+Spacing multiline after.
+
+Spacing blank-line before.
+
+$$
+x
+
++1
+$$
+
+Spacing blank-line after.
+
+Spacing same-paragraph before.
+$$
+x+1
+$$
+Spacing same-paragraph after.
+
 FENCE_FIXTURE`.replace('CODE_FIXTURE',()=>'`$never$`').replace('FENCE_FIXTURE','```js\nconst literal = "$not_math$";\n```');
 const history = [{role:'user',content:'Show the report.',timestamp:Date.now()-2000},{role:'assistant',content:[{type:'text',text:message}],timestamp:Date.now()-1000}];
 const entryUrl = '/__openclaw__/plugins/control-ui/dashboard-extras/fixture/index.js';
@@ -87,7 +117,7 @@ try{
  await page.routeWebSocket('**',socket=>{socketEvents.push('routed');socket.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.type!=='req')return;calls.push({method:frame.method,params:frame.params});try{socket.send(JSON.stringify({type:'res',id:frame.id,ok:true,payload:reply(frame.method,frame.params??{})}));}catch{socket.send(JSON.stringify({type:'res',id:frame.id,ok:false,error:{code:'INVALID_REQUEST',message:'Fixture request rejected'}}));}});setTimeout(()=>socket.send(JSON.stringify({type:'event',event:'connect.challenge',payload:{nonce:'synthetic-test-only',ts:Date.now()}})),100);});
  page.on('pageerror',error=>errors.push({kind:'page',message:error.message}));page.on('console',message=>{if(message.type()==='error')errors.push({kind:'console',message:message.text()});});
  stage='native-conversation';await page.goto(`${origin}/chat/fixture/native-regression`);await page.locator('[data-dashboard-extras-native] .chat-thread').waitFor();
- stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===6);
+ stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===10);
  assert.equal(await page.locator('.extras-shell').count(),0);assert.equal(await page.getByRole('button',{name:'Use Math & Files',exact:true}).count(),0);
  assert.equal(await page.locator('math mfrac').count(),4);await page.locator('code').filter({hasText:'$never$'}).waitFor();await page.locator('a[href="https://example.com"]').waitFor();
  stage='consistent-formula-base-size';
@@ -113,6 +143,27 @@ try{
  for(const node of await typography())assert.equal(node.size,node.bodySize);
  await nativeText.evaluate(node=>node.style.removeProperty('--chat-text-size'));
  assert.deepEqual(await nativeSizes(),unchangedTextSizes);
+ stage='no-blank-lines-left-by-math-source';
+ const spacing=await nativeText.evaluate(root=>{
+  const formulas=[...root.querySelectorAll('math')].filter(node=>node.querySelector('annotation')?.textContent?.replace(/\s/g,'')==='x+1');
+  const textBox=label=>{
+   const walker=document.createTreeWalker(root,4);
+   for(let node=walker.nextNode();node;node=walker.nextNode()){
+    const index=node.textContent.indexOf(label);if(index<0)continue;
+    const range=document.createRange();range.setStart(node,index);range.setEnd(node,index+label.length);return range.getBoundingClientRect();
+   }
+   throw Error('Missing spacing fixture text');
+  };
+  return ['one-line','multiline','blank-line','same-paragraph'].map((kind,index)=>{
+   const box=formulas[index].getBoundingClientRect();
+   return {kind,before:box.top-textBox(`Spacing ${kind} before.`).bottom,after:textBox(`Spacing ${kind} after.`).top-box.bottom,lineHeight:parseFloat(getComputedStyle(root).lineHeight)};
+  });
+ });
+ for(const sample of spacing){
+  assert.ok(sample.before>=0&&sample.before<=sample.lineHeight,`${sample.kind}: unexpected blank space before formula (${sample.before}px)`);
+  assert.ok(sample.after>=0&&sample.after<=sample.lineHeight,`${sample.kind}: unexpected blank space after formula (${sample.after}px)`);
+ }
+ for(const sample of spacing.slice(1,3))assert.ok(Math.abs(sample.after-spacing[0].after)<=1,'source newlines must not change rendered formula spacing');
  const composer=page.locator('.agent-chat__composer-combobox > textarea');await composer.fill('UNSENT_DRAFT');
  for(const [label,expected] of [['Open a local file','./opaque.unlistedverylongsuffix'],['Open extensionless file','./LICENSE'],['Open path with spaces','./report with spaces.xyz']]){
   stage=`direct-local-file-${label}`;const before=calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length;
@@ -128,10 +179,10 @@ try{
  assert.equal(await page.locator('.sidebar-file-view').count(),0);
  assert.equal(await composer.inputValue(),'UNSENT_DRAFT');
  const artifacts=path.join(project,'test-results');fs.mkdirSync(artifacts,{recursive:true});await page.locator('openclaw-chat-pane').screenshot({path:path.join(artifacts,'native-browser.png')});
- stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===6);
+ stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===10);
  for(const node of await typography())assert.equal(node.size,node.bodySize);
  assert.equal(calls.some(x=>x.method==='chat.send'),false);assert.deepEqual(errors,[]);
- const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:6,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
+ const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:10,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,compactFormulaSpacing:spacing,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
  fs.writeFileSync(path.join(artifacts,'native-browser.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
 }catch(error){
  await page?.screenshot({path:path.join(project,'test-results/native-browser-failure.png')}).catch(()=>{});

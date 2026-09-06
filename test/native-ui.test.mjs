@@ -77,6 +77,27 @@ test('host render boundary comments survive math spanning native markup',async t
  assert.equal(v.bubble.querySelectorAll('math').length,1);assert.match(v.bubble.innerHTML,/<!--native-part-->/);assert.match(v.bubble.innerHTML,/<!--native-end-->/);
 });
 
+test('consumed math line breaks keep native identities and become visible when reused for prose',async t=>{
+ const v=await fixture(t);v.setText('$$\nx+1\n$$\n\nOutside line one.\nOutside line two.');
+ const content=v.bubble.querySelector('.chat-text'),paragraph=content.querySelector('p');
+ const breaks=[...paragraph.querySelectorAll('br')],outside=content.querySelector('p:last-child br');
+ assert.equal(breaks.length,2);await pause();
+ for(const node of breaks){assert.ok(paragraph.contains(node),'host-owned nodes must not be deleted');assert.equal(v.w.getComputedStyle(node).display,'none');}
+ assert.notEqual(v.w.getComputedStyle(outside).display,'none','unrelated prose line breaks remain visible');
+ v.bubble.dataset.messageText='Reused first line.\nReused second line.';
+ paragraph.replaceChildren(v.w.document.createTextNode('Reused first line.'),breaks[0],v.w.document.createTextNode('Reused second line.'));
+ await pause();assert.notEqual(v.w.getComputedStyle(breaks[0]).display,'none','host reuse must not inherit stale suppression');
+});
+
+test('multi-paragraph math suppresses only its empty remnants and preserves subsequent prose',async t=>{
+ const v=await fixture(t);v.setText('$$\nx\n\n+1\n$$\n\nStill here.');
+ const paragraphs=[...v.bubble.querySelectorAll('.chat-text p')];assert.equal(paragraphs.length,3);
+ const marker=v.w.document.createComment('native-part');paragraphs[1].prepend(marker);await pause();
+ assert.equal(v.bubble.querySelectorAll('math').length,1);
+ assert.equal(v.w.getComputedStyle(paragraphs[1]).display,'none');
+ assert.ok(paragraphs[1].contains(marker));assert.notEqual(v.w.getComputedStyle(paragraphs[2]).display,'none');assert.equal(paragraphs[2].textContent,'Still here.');
+});
+
 test('any local filename opens directly without a preview or extension allowlist',async t=>{
  const v=await fixture(t);
  for(const file of ['./opaque.unlistedverylongsuffix','./LICENSE','./archive.custom','/fixture-workspace/my report.xyz']){
