@@ -400,10 +400,10 @@ export function extractMarkdownMath(source: string): ExtractedMarkdownMath {
       !isEscaped(source, cursor) &&
       canOpenDollar(source, cursor)
     ) {
-      const closing = findClosing(source, cursor + 1, "$", protectedRanges, (position) =>
-        canCloseDollar(source, position),
-      );
-      if (closing !== -1) {
+      // Never jump across another unescaped dollar to find a later closing
+      // delimiter: prices before real math must not swallow the whole sentence.
+      const closing = findClosing(source, cursor + 1, "$", protectedRanges);
+      if (closing !== -1 && canCloseDollar(source, closing)) {
         const tex = source.slice(cursor + 1, closing);
         if (tex.trim() && !tex.includes("\n") && tex.length <= MAX_FORMULA_CHARS) {
           capture(cursor, closing + 1, tex, false);
