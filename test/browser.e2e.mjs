@@ -25,6 +25,12 @@ $$\frac{1}{2}+\frac{1}{3}=\frac{5}{6}$$
 
 \[\frac{2}{3}\]
 
+## Heading with $x^2$
+
+| Context | Formula |
+| --- | --- |
+| Table | $x^2$ |
+
 Prices: $5 to $10. Literal code: CODE_FIXTURE.
 
 [Open a local file](./opaque.unlistedverylongsuffix)
@@ -81,9 +87,32 @@ try{
  await page.routeWebSocket('**',socket=>{socketEvents.push('routed');socket.onMessage(message=>{const frame=JSON.parse(String(message));if(frame.type!=='req')return;calls.push({method:frame.method,params:frame.params});try{socket.send(JSON.stringify({type:'res',id:frame.id,ok:true,payload:reply(frame.method,frame.params??{})}));}catch{socket.send(JSON.stringify({type:'res',id:frame.id,ok:false,error:{code:'INVALID_REQUEST',message:'Fixture request rejected'}}));}});setTimeout(()=>socket.send(JSON.stringify({type:'event',event:'connect.challenge',payload:{nonce:'synthetic-test-only',ts:Date.now()}})),100);});
  page.on('pageerror',error=>errors.push({kind:'page',message:error.message}));page.on('console',message=>{if(message.type()==='error')errors.push({kind:'console',message:message.text()});});
  stage='native-conversation';await page.goto(`${origin}/chat/fixture/native-regression`);await page.locator('[data-dashboard-extras-native] .chat-thread').waitFor();
- stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===4);
+ stage='four-delimiters-in-native-messages';await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===6);
  assert.equal(await page.locator('.extras-shell').count(),0);assert.equal(await page.getByRole('button',{name:'Use Math & Files',exact:true}).count(),0);
  assert.equal(await page.locator('math mfrac').count(),4);await page.locator('code').filter({hasText:'$never$'}).waitFor();await page.locator('a[href="https://example.com"]').waitFor();
+ stage='consistent-formula-base-size';
+ const typography=()=>page.locator('[data-dashboard-extras-native] math').evaluateAll(nodes=>nodes.map(node=>({
+  context:node.closest('h2')?'heading':node.closest('td')?'table':'body',
+  size:parseFloat(getComputedStyle(node).fontSize),
+  bodySize:parseFloat(getComputedStyle(node.closest('.chat-text')).fontSize),
+  scriptSize:node.querySelector('msup > :last-child')?parseFloat(getComputedStyle(node.querySelector('msup > :last-child')).fontSize):null,
+ })));
+ const initialTypography=await typography();
+ assert.ok(initialTypography.some(node=>node.context==='heading'));
+ assert.ok(initialTypography.some(node=>node.context==='table'));
+ for(const node of initialTypography){
+  assert.equal(node.size,node.bodySize,`${node.context} formula must follow the conversation's base size`);
+  if(node.scriptSize!==null)assert.ok(node.scriptSize<node.size,'superscripts retain their mathematical hierarchy');
+ }
+ // A user changing chat typography must not leave existing formulas at a stale
+ // pixel size. Keep the host's heading/table text styling unchanged as well.
+ const nativeText=page.locator('[data-dashboard-extras-native] .chat-text').last();
+ const nativeSizes=()=>nativeText.evaluate(node=>Object.fromEntries(['h2','table'].map(selector=>[selector,getComputedStyle(node.querySelector(selector)).fontSize])));
+ const unchangedTextSizes=await nativeSizes();
+ await nativeText.evaluate(node=>node.style.setProperty('--chat-text-size','18px'));
+ for(const node of await typography())assert.equal(node.size,node.bodySize);
+ await nativeText.evaluate(node=>node.style.removeProperty('--chat-text-size'));
+ assert.deepEqual(await nativeSizes(),unchangedTextSizes);
  const composer=page.locator('.agent-chat__composer-combobox > textarea');await composer.fill('UNSENT_DRAFT');
  for(const [label,expected] of [['Open a local file','./opaque.unlistedverylongsuffix'],['Open extensionless file','./LICENSE'],['Open path with spaces','./report with spaces.xyz']]){
   stage=`direct-local-file-${label}`;const before=calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length;
@@ -99,9 +128,10 @@ try{
  assert.equal(await page.locator('.sidebar-file-view').count(),0);
  assert.equal(await composer.inputValue(),'UNSENT_DRAFT');
  const artifacts=path.join(project,'test-results');fs.mkdirSync(artifacts,{recursive:true});await page.locator('openclaw-chat-pane').screenshot({path:path.join(artifacts,'native-browser.png')});
- stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===4);
+ stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===6);
+ for(const node of await typography())assert.equal(node.size,node.bodySize);
  assert.equal(calls.some(x=>x.method==='chat.send'),false);assert.deepEqual(errors,[]);
- const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:4,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
+ const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:6,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
  fs.writeFileSync(path.join(artifacts,'native-browser.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
 }catch(error){
  await page?.screenshot({path:path.join(project,'test-results/native-browser-failure.png')}).catch(()=>{});
