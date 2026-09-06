@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,39 +68,44 @@ function sourceFiles(directory) {
   }).sort();
 }
 
-export async function typecheck({ root = fileURLToPath(new URL('../', import.meta.url)), host = resolveHostPackage() } = {}) {
-  const ts = (await import('typescript')).default;
+export async function typecheck({ root = fileURLToPath(new URL('../', import.meta.url)), host = resolveHostPackage(), run = spawnSync } = {}) {
+  const require = createRequire(import.meta.url);
+  const compilerPackagePath = require.resolve('typescript/package.json');
+  const compilerPackage = JSON.parse(fs.readFileSync(compilerPackagePath, 'utf8'));
+  const compilerBin = typeof compilerPackage.bin === 'string' ? compilerPackage.bin : compilerPackage.bin?.tsc;
+  if (typeof compilerBin !== 'string') throw new Error('Installed TypeScript does not publish a tsc executable.');
+  const compilerRoot = path.dirname(compilerPackagePath);
+  const compilerEntry = fs.realpathSync(path.resolve(compilerRoot, compilerBin));
+  if (!within(compilerRoot, compilerEntry)) throw new Error('TypeScript compiler entry escapes its package.');
   const files = sourceFiles(path.join(root, 'src'));
-  const sdkImports = new Set();
-  for (const file of files) {
-    const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
-    const visit = node => {
-      let specifier;
-      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) specifier = node.moduleSpecifier.text;
-      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) specifier = node.arguments[0].text;
-      if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) specifier = node.argument.literal.text;
-      if (specifier === 'openclaw' || specifier?.startsWith('openclaw/')) sdkImports.add(specifier);
-      ts.forEachChild(node, visit);
-    };
-    visit(source);
-  }
+  // Map every explicitly typed public SDK export. The compiler itself parses
+  // imports, including type-only imports; no regex lexer or unstable AST API.
+  const sdkImports = Object.entries(host.packageJson.exports ?? {})
+    .filter(([name, value]) => name.startsWith('./plugin-sdk/') && typeof value?.types === 'string')
+    .map(([name]) => `openclaw/${name.slice(2)}`);
   const paths = resolvePublicSdkTypePaths(host, sdkImports);
-  const program = ts.createProgram(files, {
-    noEmit: true, strict: true, skipLibCheck: true, target: ts.ScriptTarget.ES2023,
-    lib: ['lib.es2023.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
-    module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    allowImportingTsExtensions: true, paths,
-    types: ['node'], typeRoots: [path.join(root, 'node_modules', '@types')],
-  });
-  const diagnostics = ts.getPreEmitDiagnostics(program);
-  for (const diagnostic of diagnostics) {
-    const location = diagnostic.file && diagnostic.start !== undefined
-      ? `${path.relative(root, diagnostic.file.fileName)}:${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1}`
-      : 'compiler';
-    console.error(`${location} TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dashboard-extras-typecheck-config-'));
+  try {
+    const configFile = path.join(directory, 'tsconfig.json');
+    fs.writeFileSync(configFile, JSON.stringify({
+      files,
+      compilerOptions: {
+        noEmit: true, strict: true, skipLibCheck: true, target: 'ES2023',
+        lib: ['ES2023', 'DOM', 'DOM.Iterable'],
+        module: 'NodeNext', moduleResolution: 'NodeNext',
+        allowImportingTsExtensions: true, paths,
+        types: ['node'], typeRoots: [path.join(root, 'node_modules', '@types')],
+      },
+    }));
+    const result = run(process.execPath, [compilerEntry, '--project', configFile, '--pretty', 'false'], {
+      cwd: root, stdio: 'inherit', shell: false, timeout: 120_000,
+    });
+    const passed = !result.error && !result.signal && result.status === 0;
+    console.log(`Strict typecheck ${passed ? 'PASS' : 'FAIL'}: ${files.length} source files; ${sdkImports.length} public SDK type mappings; installed OpenClaw ${host.packageJson.version}; TypeScript ${compilerPackage.version}.`);
+    return passed;
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
-  console.log(`Strict typecheck: ${diagnostics.length} diagnostics; ${files.length} source files; ${sdkImports.size} public SDK imports; installed OpenClaw ${host.packageJson.version}.`);
-  return diagnostics.length === 0;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
