@@ -57,6 +57,7 @@ async function fixture(t, options = {}) {
       throw new Error("Unexpected request");
     },
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+    ui: { selectReplacement: (surface, value) => calls.push({ method: "selectReplacement", params: { surface, value } }) },
   };
   const context = { host, signal: abort.signal, presented: true, props: {
     sessionKey: "agent:main:test", agentId: "main", messages: options.messages ?? [{ role: "assistant", content: "[Read canary](canary.txt)" }], stream: options.stream ?? null, loading: false,
@@ -206,4 +207,31 @@ test("loading, empty state and subsequent streamed updates remain readable", asy
   view.handle.update({ ...view.context, props: { ...view.context.props, messages: [], loading: true, stream: "Latest streaming content" } });
   assert.match(view.shadow.textContent, /Latest streaming content/);
   assert.match(view.shadow.textContent, /loading/i);
+});
+
+test("disconnect and reconnect retire an open operation before its capability response arrives", async t => {
+  const pending = deferred();
+  let capabilitiesCount = 0;
+  const view = await fixture(t, { request: async method => {
+    if (method === "dashboardExtras.capabilities") return ++capabilitiesCount === 1 ? caps : pending.promise;
+    return file;
+  } });
+  await preview(view);
+  button(view.shadow, "Open in Default Application").click();
+  await flush();
+  view.host.connection.connected = false;
+  for (const listener of view.listeners) listener();
+  view.host.connection.connected = true;
+  for (const listener of view.listeners) listener();
+  pending.resolve(caps);
+  await flush();
+  assert.equal(view.calls.some(call => call.method === "dashboardExtras.openLocalFile"), false);
+});
+
+test("operator can restore the built-in transcript using only the public selector", async t => {
+  const view = await fixture(t);
+  const restore = button(view.shadow, "Use built-in transcript");
+  assert.ok(restore);
+  restore.click();
+  assert.deepEqual(view.calls.find(call => call.method === "selectReplacement")?.params, { surface: "transcript", value: null });
 });
