@@ -202,3 +202,18 @@ test('backend source does not import private session-key or host internals', asy
   assert.doesNotMatch(source, /session-key-runtime|openclaw\/dist|\/src\/agents/);
   assert.match(source, /resolveSessionAgentIdStrict/);
 });
+
+test('official authoring metadata declares RPC-only activation and the actual config schema', async () => {
+  const symbols = Object.getOwnPropertySymbols(backend.default);
+  const metadata = symbols.map(symbol => backend.default[symbol]).find(value => value?.id === 'dashboard-extras');
+  assert.ok(metadata, 'the official plugin builder needs public authoring metadata');
+  assert.deepEqual(metadata.tools, []);
+  assert.deepEqual(metadata.activation, { onStartup: true });
+  const manifest = JSON.parse(await fs.readFile(new URL('../openclaw.plugin.json', import.meta.url), 'utf8'));
+  assert.deepEqual(metadata.configSchema, manifest.configSchema);
+  assert.deepEqual(backend.default.configSchema.jsonSchema, manifest.configSchema);
+  assert.equal(Object.getOwnPropertyDescriptor(backend.default, symbols[0]).enumerable, false);
+  const source = await fs.readFile(new URL('../src/index.ts', import.meta.url), 'utf8');
+  assert.match(source, /from ['"]openclaw\/plugin-sdk\/tool-plugin['"]/);
+  assert.doesNotMatch(source, /Symbol\.for/);
+});

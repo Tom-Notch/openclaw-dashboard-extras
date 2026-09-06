@@ -10,6 +10,7 @@ const sdkFixture = `
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+export const toolPluginMetadataSymbol = Symbol.for('dashboard-extras.test-authoring-metadata');
 export function resolveSessionAgentIdStrict({ config, sessionKey, agentId }) {
   const scoped = /^agent:([^:]+):/.exec(sessionKey)?.[1];
   if (scoped && agentId && scoped !== agentId.toLowerCase()) throw Error('owner mismatch');
