@@ -52,5 +52,10 @@ test('type paths come only from existing confined public export declarations', a
   for (const name of ['runtime-only', 'unsafe', 'missing']) {
     assert.throws(() => resolvePublicSdkTypePaths(resolved, [`openclaw/plugin-sdk/${name}`]), /public type export/);
   }
+  const outside = path.join(fixture, 'outside.d.ts');
+  await fs.writeFile(outside, 'export type Outside = never;');
+  await fs.symlink(outside, path.join(host.root, 'public-types', 'escape.d.ts'));
+  resolved.packageJson.exports['./plugin-sdk/symlink'] = { types: './public-types/escape.d.ts' };
+  assert.throws(() => resolvePublicSdkTypePaths(resolved, ['openclaw/plugin-sdk/symlink']), /public type export/);
   assert.throws(() => resolvePublicSdkTypePaths(resolved, ['openclaw/dist/private.js']), /public SDK import/);
 });
