@@ -111,7 +111,11 @@ export function enhanceNativeMath(bubble: HTMLElement): void {
       if (fragment.display) {
         // Collapsible margins share native paragraph spacing instead of adding
         // padding to it. Same-paragraph display math still gets a small gap.
-        span.style.display = 'block'; span.style.overflowX = 'auto'; span.style.marginBlock = '0.5em'; span.style.textAlign = 'center';
+        // overflow-x:auto otherwise makes overflow-y:auto too. Native MathML
+        // reports spare vertical scroll extent beyond its actual formula bounds;
+        // suppress that scrollbar without capping the intrinsic equation height.
+        span.style.display = 'block'; span.style.overflowX = 'auto'; span.style.overflowY = 'hidden';
+        span.style.marginBlock = '0.5em'; span.style.textAlign = 'center';
       }
       // Never delete native elements or Lit part-boundary comments. Native
       // streaming, syntax highlighting, copy buttons and keyed rows keep owners.

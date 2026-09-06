@@ -141,12 +141,16 @@ try{
    lastReachable=glyphs[glyphs.length-1].getBoundingClientRect().right<=box.left+viewport.clientWidth+1;
    viewport.scrollLeft=0;
   }
-  return {clientHeight:viewport.clientHeight,scrollHeight:viewport.scrollHeight,wide,firstReachable,lastReachable,top:Math.min(...contentBoxes.map(rect=>rect.top))-box.top,bottom:Math.max(...contentBoxes.map(rect=>rect.bottom))-(box.top+viewport.clientHeight)};
+  const overflowY=getComputedStyle(viewport).overflowY;
+  return {verticalScrollbar:overflowY==='scroll'||(overflowY==='auto'&&viewport.scrollHeight>viewport.clientHeight),wide,firstReachable,lastReachable,top:Math.min(...contentBoxes.map(rect=>rect.top))-box.top,bottom:Math.max(...contentBoxes.map(rect=>rect.bottom))-(box.top+viewport.clientHeight)};
  }));
  const checkOverflow=async()=>{
   const samples=await formulaOverflow();assert.ok(samples.some(sample=>sample.wide),'exercise an actually overflowing long formula');
   for(const sample of samples){
-   assert.ok(sample.scrollHeight<=sample.clientHeight,'formula must not have vertical scroll extent');
+   // MathML's scrollHeight includes spare font metrics outside its rendered
+   // bounds. Test the unwanted scrollbar and clipping independently, not that
+   // browser-internal extent (which remains even with no vertical scrollbar).
+   assert.equal(sample.verticalScrollbar,false,'formula must not have a vertical scrollbar');
    assert.ok(sample.top>=-1&&sample.bottom<=1,'fractions, scripts and matrix bounds must fit without clipping');
    assert.ok(sample.firstReachable&&sample.lastReachable,'both ends of long math must be reachable horizontally');
   }
@@ -175,6 +179,7 @@ try{
  const unchangedTextSizes=await nativeSizes();
  await nativeText.evaluate(node=>node.style.setProperty('--chat-text-size','18px'));
  for(const node of await typography())assert.equal(node.size,node.bodySize);
+ await checkOverflow();
  await nativeText.evaluate(node=>node.style.removeProperty('--chat-text-size'));
  assert.deepEqual(await nativeSizes(),unchangedTextSizes);
  stage='no-blank-lines-left-by-math-source';
