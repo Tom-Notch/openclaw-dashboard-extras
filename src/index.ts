@@ -1,6 +1,7 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
 import {
   getDashboardCapabilities,
+  getDefaultView,
   isSupportedHost,
   openLocalFileFromDashboard,
   supportsNativeOpenRuntime,
@@ -17,7 +18,7 @@ export function registerDashboardExtras(api: OpenClawPluginApi, deps: NativeOpen
       try {
         respond(true, await getDashboardCapabilities(api, params, deps));
       } catch {
-        respond(true, { nativeOpen: false });
+        respond(true, { nativeOpen: false, defaultView: getDefaultView(api) });
       }
     }, { scope: 'operator.read', profileAccess: 'required' });
 

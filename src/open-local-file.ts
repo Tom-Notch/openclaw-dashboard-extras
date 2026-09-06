@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { OpenClawConfig, OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
 
@@ -16,7 +17,7 @@ export type NativeOpenDeps = {
 type FailureCode = 'invalid-request' | 'unsupported-platform' | 'unsupported-runtime' | 'session-unavailable' |
   'stale-preview' | 'remote-session' | 'outside-allowed-roots' | 'file-unavailable' | 'not-a-file' | 'unsafe-path' | 'open-failed';
 export type DashboardOpenLocalFileResult = { opened: true } | { opened: false; code: FailureCode; reason: string };
-export type DashboardCapabilities = { nativeOpen: boolean; sessionId?: string; root?: string };
+export type DashboardCapabilities = { nativeOpen: boolean; defaultView: 'math' | 'builtin'; sessionId?: string; root?: string };
 type SessionRequest = { sessionKey: string; agentId?: string };
 type OpenRequest = SessionRequest & { requestedPath: string; expectedSessionId: string; expectedRoot: string };
 const MAX_PATH_LENGTH = 8_192;
@@ -111,17 +112,39 @@ function matches(binding: Binding, request: OpenRequest): boolean {
   return binding.entry.sessionId === request.expectedSessionId && path.resolve(binding.root) === path.resolve(request.expectedRoot) && !isRemote(binding);
 }
 
+/** Capture filesystem identities, not just root spellings that could be retargeted. */
+function captureRootIdentities(roots: readonly string[]): string {
+  return JSON.stringify([...roots].sort().map(root => {
+    try {
+      const canonical = realpathSync(root);
+      const stat = statSync(canonical, { bigint: true });
+      return [root, canonical, stat.dev.toString(), stat.ino.toString(), stat.isDirectory()];
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return [root, null];
+      throw error;
+    }
+  }));
+}
+
+export function getDefaultView(api: OpenClawPluginApi): 'math' | 'builtin' {
+  try { return api?.pluginConfig?.defaultView === 'math' ? 'math' : 'builtin'; }
+  catch { return 'builtin'; }
+}
+
 export async function getDashboardCapabilities(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps = {}): Promise<DashboardCapabilities> {
-  if ((deps.platform ?? process.platform) !== 'darwin' || !supportsNativeOpenRuntime(api)) return { nativeOpen: false };
+  const defaultView = getDefaultView(api);
+  const unavailable = { nativeOpen: false, defaultView };
+  if ((deps.platform ?? process.platform) !== 'darwin' || !supportsNativeOpenRuntime(api)) return unavailable;
   const sdk = await resolveSdk(deps);
-  if (!sdk) return { nativeOpen: false };
-  if (params === undefined || (params && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length === 0)) return { nativeOpen: true };
+  if (!sdk) return unavailable;
+  if (params === undefined || (params && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length === 0)) return { nativeOpen: true, defaultView };
   const request = parseSessionRequest(params);
-  if (!request) return { nativeOpen: false };
+  if (!request) return unavailable;
   try {
     const binding = resolveBinding(api, sdk, request);
-    return !binding || isRemote(binding) ? { nativeOpen: false } : { nativeOpen: true, sessionId: binding.entry.sessionId, root: binding.root };
-  } catch { return { nativeOpen: false }; }
+    return !binding || isRemote(binding) ? unavailable : { nativeOpen: true, defaultView, sessionId: binding.entry.sessionId, root: binding.root };
+  } catch { return unavailable; }
 }
 
 /** Foundation receives only the previously validated descriptor, inherited as FD 3. */
@@ -178,6 +201,8 @@ export async function openLocalFileFromDashboard(api: OpenClawPluginApi, params:
   if (!binding) return failure('session-unavailable');
   if (isRemote(binding)) return failure('remote-session');
   if (!matches(binding, request)) return failure('stale-preview');
+  let rootIdentities: string;
+  try { rootIdentities = captureRootIdentities(binding.roots); } catch { return failure('unsafe-path'); }
   const candidate = path.isAbsolute(request.requestedPath) ? path.normalize(request.requestedPath) : path.resolve(binding.root, request.requestedPath);
   let contained;
   try {
@@ -206,6 +231,7 @@ export async function openLocalFileFromDashboard(api: OpenClawPluginApi, params:
     if (!latest || latest.agentId !== binding.agentId || !matches(latest, request)) return failure('stale-preview');
     // Validate the immutable root grant again. A changed pathname must never replace the pinned inode.
     if (latest.roots.length !== binding.roots.length || latest.roots.some(root => !binding.roots.includes(root))) return failure('stale-preview');
+    if (captureRootIdentities(latest.roots) !== rootIdentities) return failure('stale-preview');
     await (deps.launch ?? launchMacOSDefaultApplication)(reference);
     return { opened: true };
   } catch { return failure('open-failed'); }
