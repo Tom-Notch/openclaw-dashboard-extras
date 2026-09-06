@@ -13,6 +13,9 @@ buttons, the composer, history, and file previews remain owned by OpenClaw.
 - `$…$`, `$$…$$`, `\(…\)`, and `\[…\]` formulas in existing message bubbles,
   including completed formulas in streamed responses. KaTeX runs locally and
   emits sanitized MathML. Code, prices, links, and native rich blocks remain.
+  Formula base size follows the live chat-text setting consistently across
+  paragraphs, headings and tables. MathML still preserves normal script/fraction
+  hierarchy and explicit TeX size commands; it does not flatten all glyphs.
 - **Click any local file link → the Gateway host's system default application.**
   No file-extension allowlist, preview-kind detection, or Dashboard file-read
   request. Files without extensions work too. The OS decides which app to use.
