@@ -11,6 +11,11 @@ const pause = () => new Promise(resolve => setTimeout(resolve, 25));
 async function fixture(t, options = {}) {
   bundled ??= buildProductionArtifact({ entryPoints: ['src/control-ui.ts'], platform: 'browser', format: 'iife', globalName: 'Plugin' });
   const w = new Window();
+  const downloads=[],blobs=[];
+  w.URL.createObjectURL=blob=>{blobs.push(blob);return 'blob:https://fixture.invalid/'+blobs.length;};
+  w.URL.revokeObjectURL=()=>{};
+  const click=w.HTMLAnchorElement.prototype.click;
+  w.HTMLAnchorElement.prototype.click=function(){if(this.hasAttribute('download'))downloads.push({name:this.download,url:this.href});else click.call(this);};
   const sandbox = createContext({ window:w, document:w.document, navigator:w.navigator, MutationObserver:w.MutationObserver, Node:w.Node, Element:w.Element, HTMLElement:w.HTMLElement, localStorage:w.localStorage, atob, btoa, URL, setTimeout, clearTimeout, queueMicrotask }, { codeGeneration: { strings:false, wasm:false } });
   const artifact = await bundled;
   new Script(artifact.code, { filename:artifact.path }).runInContext(sandbox);
@@ -18,7 +23,7 @@ async function fixture(t, options = {}) {
   const container = w.document.querySelector('#native');
   const scope = { sessionKey:'agent:fixture:test', agentId:'fixture' };
   const abort = new AbortController(); const registrations=[]; const actions=[]; const selections=[]; const calls=[]; const listeners=new Set();
-  const caps = { nativeOpen:true, sessionId:'incarnation', root:'/workspace' };
+  const caps = { nativeOpen:true, localClient:true, download:true, sessionId:'incarnation', root:'/workspace' };
   const host = { apiVersion:1, signal:abort.signal, locale:'en', connection:{ connected:true, canRead:true, canAdmin:options.admin ?? true },
     request:async (method,params) => { calls.push({ method,params:structuredClone(params) }); if(method==='dashboardExtras.capabilities'&&!params)return caps; if(options.request)return options.request(method,params); if(method==='dashboardExtras.capabilities')return caps; if(method==='sessions.files.get')return { ...scope,root:'/workspace',file:{path:params.path,missing:false} }; if(method==='dashboardExtras.openLocalFile')return {opened:true}; throw Error('Unexpected RPC'); },
     subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},
@@ -36,7 +41,7 @@ async function fixture(t, options = {}) {
   const bubble=container.querySelector('#bubble');
   const setText=source=>{bubble.dataset.messageText=source;bubble.querySelector('.chat-text').innerHTML=plain.render(source);};
   const sidebar=(path='demo.txt')=>{const side=w.document.querySelector('#side'); side.innerHTML='<section class="sidebar-file-view"><div class="sidebar-file-view__path-bar"><span class="sidebar-file-view__path"></span><div class="sidebar-file-view__actions"><button id="edit">Edit</button></div></div><pre id="file-content">NATIVE_PREVIEW</pre><div class="sidebar-file-view__footer"><button id="raw">View Raw Text</button></div></section>';side.querySelector('.sidebar-file-view__path').setAttribute('title',path);side.querySelector('.sidebar-file-view__path').textContent=path;return side;};
-  return {w,container,bubble,setText,sidebar,handle,context,host,caps,calls,actions,selections,listeners,abort,unmounts:()=>unmounts};
+  return {w,container,bubble,setText,sidebar,handle,context,host,caps,calls,actions,selections,listeners,abort,downloads,blobs,unmounts:()=>unmounts};
 }
 
 test('enhancement is automatic, without mode buttons, and preserves native owners',async t=>{
@@ -134,4 +139,42 @@ test('revoked permission, changed session and aborted late work cannot open a fi
 test('double clicks coalesce and unavailable native opening reports an inline failure',async t=>{
  const v=await fixture(t,{request:async method=>method==='dashboardExtras.capabilities'?{nativeOpen:false}:{opened:true}});v.setText('[File](./report)');const link=v.bubble.querySelector('a');link.click();link.click();await pause();
  assert.equal(v.calls.filter(x=>x.method==='dashboardExtras.capabilities').length,1);assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);assert.ok(v.bubble.querySelector('[role="status"]'));assert.equal(v.w.document.querySelector('textarea').value,'unsent draft');
+});
+
+test('remote browsers download arbitrary binary files in chunks without launching the gateway app',async t=>{
+ const bytes=Buffer.from([0,255,128,7,8]);
+ const v=await fixture(t,{request:async(method,params)=>{
+  if(method==='dashboardExtras.capabilities')return {nativeOpen:true,localClient:false,download:true,sessionId:'incarnation',root:'/workspace'};
+  if(method==='dashboardExtras.readLocalFile')return {read:true,name:'report with spaces.unknown',size:5,offset:params.offset,nextOffset:Math.min(5,params.offset+3),revision:'a'.repeat(64),data:bytes.subarray(params.offset,params.offset+3).toString('base64')};
+  assert.fail('remote browser must never request native opening');
+ }});
+ v.setText('[Report](./report.unknown)');v.bubble.querySelector('a').click();v.bubble.querySelector('a').click();await pause();
+ assert.equal(v.downloads.length,1);assert.equal(v.downloads[0].name,'report with spaces.unknown');
+ assert.deepEqual(Buffer.from(await v.blobs[0].arrayBuffer()),bytes);
+ const reads=v.calls.filter(x=>x.method==='dashboardExtras.readLocalFile');assert.deepEqual(reads.map(x=>x.params.offset),[0,3]);assert.equal(reads[1].params.expectedRevision,'a'.repeat(64));
+ assert.equal(v.calls.some(x=>x.method==='dashboardExtras.openLocalFile'),false);assert.equal(v.w.document.querySelector('#side').childElementCount,0);
+});
+
+test('local opener failure and an unsupported platform fall back to download',async t=>{
+ for(const nativeOpen of [true,false]){
+  const v=await fixture(t,{request:async method=>{
+   if(method==='dashboardExtras.capabilities')return {nativeOpen,localClient:true,download:true,sessionId:'incarnation',root:'/workspace'};
+   if(method==='dashboardExtras.openLocalFile')return {opened:false,code:'open-failed'};
+   if(method==='dashboardExtras.readLocalFile')return {read:true,name:'LICENSE',size:0,offset:0,nextOffset:0,revision:'b'.repeat(64),data:''};
+   assert.fail('unexpected RPC');
+  }});v.setText('[File](./LICENSE)');v.bubble.querySelector('a').click();await pause();
+  assert.equal(v.downloads.length,1);assert.equal(v.blobs[0].size,0);assert.equal(v.bubble.querySelector('[role="status"]'),null);
+ }
+});
+
+test('download refusals, changed files and stale sessions never save partial or unauthorized bytes',async t=>{
+ for(const mode of ['refused','changed','session','abort','admin']){
+  let release;const delayed=new Promise(r=>release=r);
+  const v=await fixture(t,{request:async method=>method==='dashboardExtras.capabilities'?{nativeOpen:false,localClient:false,download:true,sessionId:'incarnation',root:'/workspace'}:delayed});
+  v.setText('[File](./file.any)');v.bubble.querySelector('a').click();await pause();
+  if(mode==='session')v.handle.update({...v.context,props:{...v.context.props,sessionKey:'agent:fixture:other'}});
+  if(mode==='abort')v.abort.abort();if(mode==='admin')v.host.connection.canAdmin=false;
+  release(mode==='refused'?{read:false,code:'outside-allowed-roots'}:{read:true,name:'file.any',size:1,offset:mode==='changed'?5:0,nextOffset:1,revision:'c'.repeat(64),data:'YQ=='});
+  await pause();assert.equal(v.downloads.length,0);assert.equal(v.blobs.length,0);
+ }
 });

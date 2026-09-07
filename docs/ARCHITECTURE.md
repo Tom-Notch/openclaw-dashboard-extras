@@ -5,8 +5,8 @@
 | Owner | Responsibilities |
 | --- | --- |
 | OpenClaw | Native transcript, message grouping, tools, history, composer, sessions, authentication, file link routing, preview/editor, plugin asset serving |
-| Browser plugin | Mount native transcript; insert sanitized MathML at matched formula text; delegate explicit local-file clicks to the OS default application |
-| Backend plugin | `operator.read` capabilities and `operator.admin` file opening with required profile access and independent filesystem authorization |
+| Browser plugin | Mount native transcript; decorate formulas; route file clicks to a local default app or a browser download |
+| Backend plugin | `operator.read` capabilities; `operator.admin` file opening and bounded binary reads, with required profile access and independent filesystem authorization |
 
 `control-ui.ts` registers a transcript contribution and immediately selects it.
 Its mount function calls the **public `context.mountDefault`** exactly once.
@@ -79,7 +79,11 @@ native file target when available, otherwise classifies scheme-less Markdown
 paths or local `file:` URLs. It never tests extensions, sniffs MIME types, checks
 preview kinds, or reads a file through `sessions.files.get` first. Explicit
 clicks query scoped capability/identity, then pass the target to the authorized
-backend; LaunchServices chooses the application for that actual file.
+backend. With attested local-client capability, LaunchServices chooses the app.
+Otherwise `download-file.ts` reads bounded binary chunks through authenticated
+`dashboardExtras.readLocalFile` calls and saves a complete browser Blob. A
+reported native-open failure takes the same download path. Unknown locations
+never authorize a Gateway-native launch. No preview API or file-type list is involved.
 
 HTTP(S), email, fragment and native session links keep their original owner.
 Alt/modified clicks keep OpenClaw's existing navigation/side-panel behavior.
@@ -90,6 +94,8 @@ The native transcript context supplies the session/agent identity, including
 split panes. Async work is retired on session/agent changes, unpresentation,
 disconnection or disposal. Repeated clicks during one pending open coalesce.
 Failures appear beside the clicked link; success adds no alternate view or panel.
+Download chunks must have consecutive offsets, consistent size/name/revision,
+and exact decoded lengths. Late/stale work never triggers the final browser save.
 
 ## Backend security boundary
 
@@ -100,6 +106,20 @@ checks containment and root identities, obtains an inode-bound macOS file
 reference, and rechecks session/config authority before `/usr/bin/open`.
 The user path is never evaluated as a command or passed as a LaunchServices URL.
 Unsupported safety APIs disable the operation, not Gateway startup.
+
+The native-open RPC additionally requires `client.internal.isLocalClient === true`
+from the public handler context; spoofed parameters, user agents, and a bare
+loopback `clientIp` are not accepted as proof. This reflects the Gateway's
+transport attestation, not an infallible physical-device detector through tunnels.
+
+Downloads share the same read-only descriptor validation and root/session
+revalidation as native opening, on all supported Gateway platforms. Each RPC
+reads at most 512 KiB. A SHA-256 revision over the descriptor's device, inode,
+size and nanosecond mtime/ctime prevents combining chunks of a modified/replaced
+file. It is checked before and after reading. The handle closes on all paths;
+there are no persistent grants, bearer download URLs, or server-side file copies.
+The browser buffers the completed file in a Blob; no partial file is saved on
+failure, and its temporary object URL is revoked after the download starts.
 
 ## Compatibility evidence
 

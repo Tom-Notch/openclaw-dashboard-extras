@@ -75,9 +75,9 @@ export function createApi(root, options = {}) {
   return { api, state, methods, logs };
 }
 
-export async function invoke(methods, name, params) {
+export async function invoke(methods, name, params, client = { internal: { isLocalClient: true } }) {
   let response;
-  await methods.get(name).handler({ params, respond: (ok, payload) => { response = { ok, payload }; } });
+  await methods.get(name).handler({ params, client, respond: (ok, payload) => { response = { ok, payload }; } });
   if (!response?.ok) throw Error('RPC did not respond successfully');
   return response.payload;
 }

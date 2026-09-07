@@ -118,7 +118,7 @@ test("browser contributions are optional and native RPC authority stays explicit
   assert.match(adapter, /initial\.mountDefault\(native\)/);
   assert.match(adapter, /observer\.observe\(native,/);
   assert.doesNotMatch(adapter, /sessions\.files\.get|previewKind|sidebar-file-view/);
-  for (const method of ["dashboardExtras.capabilities", "dashboardExtras.openLocalFile"]) {
+  for (const method of ["dashboardExtras.capabilities", "dashboardExtras.openLocalFile", "dashboardExtras.readLocalFile"]) {
     assert.ok(backend.includes(method), `missing scoped RPC: ${method}`);
   }
   for (const scope of ["operator.read", "operator.admin"]) {

@@ -1,6 +1,7 @@
 import type { ControlUiSurfaceProps, ControlUiViewContext } from 'openclaw/plugin-sdk/control-ui';
 import { enhanceNativeMath } from './native-math.ts';
 import { localFileFromAnchor } from './local-file-link.ts';
+import { downloadSessionFile } from './download-file.ts';
 
 type Context = ControlUiViewContext<ControlUiSurfaceProps['transcript']>;
 type RecordValue = Record<string, unknown>;
@@ -45,16 +46,22 @@ export function mountNativeTranscript(container: HTMLElement, initial: Context) 
     try {
       const access = await host.request('dashboardExtras.capabilities', scope);
       if (!valid()) return;
-      if (!record(access) || access.nativeOpen !== true || !text(access.sessionId) || !text(access.root)) {
-        failure(anchor, 'The Gateway cannot open local files in this session.'); return;
+      if (!record(access) || !text(access.sessionId) || !text(access.root)) {
+        failure(anchor, 'The Gateway cannot access files in this session.'); return;
       }
-      // There is deliberately no preview/read or extension classification here.
+      // No preview preflight or extension classification: open or download the actual file.
       // The backend resolves and validates the actual regular file itself.
-      const result = await host.request('dashboardExtras.openLocalFile', {
+      const request = {
         ...scope, path, expectedSessionId: access.sessionId, expectedRoot: access.root,
-      });
-      if (valid() && (!record(result) || result.opened !== true)) failure(anchor, 'Could not open this file. Check its path and session file permissions.');
-    } catch { if (valid()) failure(anchor, 'Could not open this file. Check the Gateway connection and try again.'); }
+      };
+      if (access.nativeOpen === true && access.localClient === true) {
+        const result = await host.request('dashboardExtras.openLocalFile', request);
+        if (!valid() || (record(result) && result.opened === true)) return;
+      }
+      if (!valid()) return;
+      if (access.download !== true) { failure(anchor, 'File download is unavailable. Reload the updated plugin and try again.'); return; }
+      await downloadSessionFile(host, request, document, valid);
+    } catch { if (valid()) failure(anchor, 'Could not open or download this file. Check its path, session file permissions and Gateway connection.'); }
     finally { pending.delete(anchor); anchor.removeAttribute('aria-busy'); }
   }
   function onClick(event: MouseEvent) {

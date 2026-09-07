@@ -1,7 +1,7 @@
 {
   "id": "dashboard-extras",
   "name": "Dashboard Extras",
-  "description": "Seamless native conversation math and safe default-application file actions",
+  "description": "Native conversation math, local default-app opening and remote file downloads",
   "enabledByDefault": false,
   "activation": {
     "onStartup": true
@@ -11,9 +11,9 @@
     "additionalProperties": false,
     "properties": {}
   },
-  "version": "0.2.3",
+  "version": "0.3.0",
   "controlUi": {
-    "entry": "dist/control-ui/08406b80cd1a8f41574a8de8dca3e73f132cca892a12abc42a38314884920118/index.js"
+    "entry": "dist/control-ui/c6cb1b2b43552a73d0518845880be0ebb07d7b7fda4bfcf49799c0a27be77906/index.js"
   },
   "contracts": {
     "tools": []

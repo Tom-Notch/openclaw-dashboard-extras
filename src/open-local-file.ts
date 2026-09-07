@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { OpenClawConfig, OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
 
 type SecuritySdk = typeof import('openclaw/plugin-sdk/security-runtime');
@@ -15,15 +16,18 @@ export type NativeOpenDeps = {
   launch?: (reference: string) => Promise<void>;
 };
 type FailureCode = 'invalid-request' | 'unsupported-platform' | 'unsupported-runtime' | 'session-unavailable' |
-  'stale-preview' | 'remote-session' | 'outside-allowed-roots' | 'file-unavailable' | 'not-a-file' | 'unsafe-path' | 'open-failed';
-export type DashboardOpenLocalFileResult = { opened: true } | { opened: false; code: FailureCode; reason: string };
-export type DashboardCapabilities = { nativeOpen: boolean; sessionId?: string; root?: string };
+  'stale-preview' | 'remote-session' | 'remote-client' | 'outside-allowed-roots' | 'file-unavailable' | 'not-a-file' | 'unsafe-path' | 'open-failed' | 'read-failed' | 'file-changed';
+type FileFailure = { opened: false; code: FailureCode; reason: string };
+export type DashboardOpenLocalFileResult = { opened: true } | FileFailure;
+export type DashboardReadLocalFileResult = { read: true; name: string; size: number; offset: number; nextOffset: number; revision: string; data: string } |
+  { read: false; code: FailureCode; reason: string };
+export type DashboardCapabilities = { nativeOpen: boolean; download?: boolean; sessionId?: string; root?: string };
 type SessionRequest = { sessionKey: string; agentId?: string };
 type OpenRequest = SessionRequest & { requestedPath: string; expectedSessionId: string; expectedRoot: string };
 const MAX_PATH_LENGTH = 8_192;
 const FILE_REFERENCE_PATTERN = /^file:\/\/\/\.file\/id=([0-9]+)\.([0-9]+)$/;
 const FILE_REFERENCE_SCRIPT = 'ObjC.import("Foundation"); ObjC.unwrap($.NSURL.fileURLWithPath("/dev/fd/3").fileReferenceURL.absoluteString);';
-const failure = (code: FailureCode, reason = 'The file could not be opened safely.'): DashboardOpenLocalFileResult => ({ opened: false, code, reason });
+const failure = (code: FailureCode, reason = 'The file could not be opened safely.'): FileFailure => ({ opened: false, code, reason });
 
 /** A security API floor, not an exact host pin or an upper version ceiling. */
 export function isSupportedHost(api: OpenClawPluginApi): boolean {
@@ -129,15 +133,16 @@ function captureRootIdentities(roots: readonly string[]): string {
 
 export async function getDashboardCapabilities(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps = {}): Promise<DashboardCapabilities> {
   const unavailable = { nativeOpen: false };
-  if ((deps.platform ?? process.platform) !== 'darwin' || !supportsNativeOpenRuntime(api)) return unavailable;
+  if (!supportsNativeOpenRuntime(api)) return unavailable;
   const sdk = await resolveSdk(deps);
   if (!sdk) return unavailable;
-  if (params === undefined || (params && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length === 0)) return { nativeOpen: true };
+  const supported = { nativeOpen: (deps.platform ?? process.platform) === 'darwin', download: true };
+  if (params === undefined || (params && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length === 0)) return supported;
   const request = parseSessionRequest(params);
   if (!request) return unavailable;
   try {
     const binding = resolveBinding(api, sdk, request);
-    return !binding || isRemote(binding) ? unavailable : { nativeOpen: true, sessionId: binding.entry.sessionId, root: binding.root };
+    return !binding || isRemote(binding) ? unavailable : { ...supported, sessionId: binding.entry.sessionId, root: binding.root };
   } catch { return unavailable; }
 }
 
@@ -182,9 +187,10 @@ function validateFileReference(reference: string, inode: bigint): boolean {
   try { return Boolean(match?.[2]) && BigInt(match![2]) === inode; } catch { return false; }
 }
 
-/** Authenticated admin RPC owner validates server policy before any native side effect. */
-export async function openLocalFileFromDashboard(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps = {}): Promise<DashboardOpenLocalFileResult> {
-  if ((deps.platform ?? process.platform) !== 'darwin') return failure('unsupported-platform');
+type OpenedFile = Awaited<ReturnType<NativeOpenSdk['openLocalFileSafely']>>;
+/** Shared read-only descriptor authorization for native opening and downloads. */
+async function withValidatedFile<T>(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps,
+  use: (opened: OpenedFile, currentFailure: () => FileFailure | undefined) => Promise<T | FileFailure>): Promise<T | FileFailure> {
   if (!supportsNativeOpenRuntime(api)) return failure('unsupported-runtime');
   const request = parseOpenRequest(params);
   if (!request) return failure('invalid-request');
@@ -216,18 +222,61 @@ export async function openLocalFileFromDashboard(api: OpenClawPluginApi, params:
     if (!opened.stat.isFile()) return failure('not-a-file');
     const finalContainment = sdk.resolveLocalPathFromRootsSync({ filePath: opened.realPath, roots: binding.roots, label: 'dashboard file roots', requireFile: true });
     if (!finalContainment || finalContainment.path !== opened.realPath) return failure('outside-allowed-roots');
+    return await use(opened, () => {
+      // Re-read BOTH session incarnation and current config/root policy after awaited work.
+      if (!supportsNativeOpenRuntime(api)) return failure('unsupported-runtime');
+      const latest = resolveBinding(api, sdk, request);
+      if (!latest || latest.agentId !== binding.agentId || !matches(latest, request)) return failure('stale-preview');
+      if (latest.roots.length !== binding.roots.length || latest.roots.some(root => !binding.roots.includes(root))) return failure('stale-preview');
+      if (captureRootIdentities(latest.roots) !== rootIdentities) return failure('stale-preview');
+      return undefined;
+    });
+  } catch { return failure('open-failed'); }
+  finally { await opened.handle.close().catch(() => {}); }
+}
+
+/** Authenticated, local admin RPC owner validates policy before any native side effect. */
+export async function openLocalFileFromDashboard(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps = {}): Promise<DashboardOpenLocalFileResult> {
+  if ((deps.platform ?? process.platform) !== 'darwin') return failure('unsupported-platform');
+  return withValidatedFile(api, params, deps, async (opened, currentFailure) => {
     const stat = await opened.handle.stat({ bigint: true });
     const reference = await (deps.createFileReference ?? createMacOSFileReference)(opened.handle.fd);
     if (!validateFileReference(reference, stat.ino)) return failure('unsafe-path');
-    // Re-read BOTH session incarnation and current config/root policy after awaited work.
-    if (!supportsNativeOpenRuntime(api)) return failure('unsupported-runtime');
-    const latest = resolveBinding(api, sdk, request);
-    if (!latest || latest.agentId !== binding.agentId || !matches(latest, request)) return failure('stale-preview');
-    // Validate the immutable root grant again. A changed pathname must never replace the pinned inode.
-    if (latest.roots.length !== binding.roots.length || latest.roots.some(root => !binding.roots.includes(root))) return failure('stale-preview');
-    if (captureRootIdentities(latest.roots) !== rootIdentities) return failure('stale-preview');
+    const revoked = currentFailure();
+    if (revoked) return revoked;
     await (deps.launch ?? launchMacOSDefaultApplication)(reference);
-    return { opened: true };
-  } catch { return failure('open-failed'); }
-  finally { await opened.handle.close().catch(() => {}); }
+    return { opened: true as const };
+  });
+}
+
+const DOWNLOAD_CHUNK_BYTES = 512 * 1_024;
+function fileRevision(stat: import('node:fs').BigIntStats): string {
+  return createHash('sha256').update([stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':')).digest('hex');
+}
+
+/** Bounded binary chunks over the existing authenticated RPC, not public file URLs. */
+export async function readLocalFileFromDashboard(api: OpenClawPluginApi, params: unknown, deps: NativeOpenDeps = {}): Promise<DashboardReadLocalFileResult> {
+  const raw = params && typeof params === 'object' && !Array.isArray(params) ? params as Record<string, unknown> : {};
+  const offset = raw.offset ?? 0;
+  if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 ||
+      (raw.expectedRevision !== undefined && (typeof raw.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(raw.expectedRevision))) ||
+      (offset > 0 && raw.expectedRevision === undefined)) return { read: false, code: 'invalid-request', reason: 'Invalid download request.' };
+  const result = await withValidatedFile(api, params, deps, async (opened, currentFailure) => {
+    const before = await opened.handle.stat({ bigint: true });
+    const revision = fileRevision(before), size = Number(before.size);
+    if (!Number.isSafeInteger(size) || offset > size) return failure('invalid-request');
+    if (raw.expectedRevision !== undefined && raw.expectedRevision !== revision) return failure('file-changed');
+    const buffer = Buffer.alloc(Math.min(DOWNLOAD_CHUNK_BYTES, size - offset));
+    let total = 0;
+    while (total < buffer.length) {
+      const { bytesRead } = await opened.handle.read(buffer, total, buffer.length - total, offset + total);
+      if (!bytesRead) return failure('file-changed');
+      total += bytesRead;
+    }
+    if (fileRevision(await opened.handle.stat({ bigint: true })) !== revision) return failure('file-changed');
+    const revoked = currentFailure();
+    if (revoked) return revoked;
+    return { read: true as const, name: path.basename(opened.realPath), size, offset, nextOffset: offset + total, revision, data: buffer.toString('base64') };
+  });
+  return 'opened' in result ? { read: false, code: result.code === 'open-failed' ? 'read-failed' : result.code, reason: 'The file could not be downloaded safely.' } : result;
 }

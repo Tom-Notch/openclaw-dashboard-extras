@@ -16,6 +16,14 @@ Then update/build the checkout, validate the package and reload the native UI.
 The stale browser `openclaw-dashboard-extras.transcript.v1` preference is ignored.
 It cannot re-enable the old interface. There is no replacement config knob.
 
+## From 0.2 to 0.3 (local opening and remote downloads)
+
+0.3 changes the browser/backend file-action contract. Update both artifacts and
+coordinate a managed Gateway restart, then reload the Dashboard. A new browser
+bundle talking to an old backend must not assume that `nativeOpen: true` proves
+the browser is local. No config migration, extra permission grant, service or
+credential is added; file downloads retain the existing admin/profile boundary.
+
 ## Routine core updates
 
 Use the managed stable-channel updater in the operator's maintenance window:
@@ -73,6 +81,10 @@ name does not imply an npm release already exists.
    arbitrary unknown suffix. The OS chooses the application; no Dashboard
    preview or file-content read is required. Merely displaying a link must not
    launch anything. Alt-click keeps native navigation available.
+   From a remote browser, the same clicks must download to that browser without
+   launching the Gateway app. Verify binary bytes across a 512 KiB chunk boundary,
+   empty files and spaces in names. Native-open failure should also download;
+   denied roots, a changed file, or revoked session must not save partial bytes.
 5. Change sessions, lose/reconnect the connection, or revoke admin access:
    pending file actions must not authorize an old request.
 6. Reload the Dashboard. Enhancement remains automatic. Check fresh browser and

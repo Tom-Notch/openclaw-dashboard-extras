@@ -4,27 +4,39 @@ import {
   getDashboardCapabilities,
   isSupportedHost,
   openLocalFileFromDashboard,
+  readLocalFileFromDashboard,
   supportsNativeOpenRuntime,
   type NativeOpenDeps,
 } from './open-local-file.js';
 
-export { openLocalFileFromDashboard, createMacOSFileReference } from './open-local-file.js';
+export { openLocalFileFromDashboard, readLocalFileFromDashboard, createMacOSFileReference } from './open-local-file.js';
 
 /** Exported separately so registration can be tested without launching a Gateway. */
 export function registerDashboardExtras(api: OpenClawPluginApi, deps: NativeOpenDeps = {}): void {
   try {
     if (typeof api?.registerGatewayMethod !== 'function' || !isSupportedHost(api)) return;
-    api.registerGatewayMethod('dashboardExtras.capabilities', async ({ params, respond }) => {
+    api.registerGatewayMethod('dashboardExtras.capabilities', async ({ params, client, respond }) => {
       try {
-        respond(true, await getDashboardCapabilities(api, params, deps));
+        const capabilities = await getDashboardCapabilities(api, params, deps);
+        const localClient = client?.internal?.isLocalClient === true && !client.invalidated && !client.connectionSignal?.aborted;
+        respond(true, { ...capabilities, nativeOpen: capabilities.nativeOpen && localClient, localClient });
       } catch {
         respond(true, { nativeOpen: false });
       }
     }, { scope: 'operator.read', profileAccess: 'required' });
 
     // Metadata/discovery must not touch runtime state or start child processes.
-    if (!supportsNativeOpenRuntime(api) || (deps.platform ?? process.platform) !== 'darwin') return;
-    api.registerGatewayMethod('dashboardExtras.openLocalFile', async ({ params, respond }) => {
+    if (!supportsNativeOpenRuntime(api)) return;
+    api.registerGatewayMethod('dashboardExtras.readLocalFile', async ({ params, respond }) => {
+      try { respond(true, await readLocalFileFromDashboard(api, params, deps)); }
+      catch { respond(true, { read: false, code: 'read-failed', reason: 'The file could not be downloaded safely.' }); }
+    }, { scope: 'operator.admin', profileAccess: 'required' });
+    if ((deps.platform ?? process.platform) !== 'darwin') return;
+    api.registerGatewayMethod('dashboardExtras.openLocalFile', async ({ params, client, respond }) => {
+      // Locality is attested by the Gateway handshake, never a hostname, user agent or wire flag.
+      if (client?.internal?.isLocalClient !== true || client.invalidated || client.connectionSignal?.aborted) {
+        respond(true, { opened: false, code: 'remote-client', reason: 'Download this file on the current device.' }); return;
+      }
       try {
         respond(true, await openLocalFileFromDashboard(api, params, deps));
       } catch {
@@ -46,7 +58,7 @@ const configSchema = {
 const plugin = {
   id: 'dashboard-extras',
   name: 'Dashboard Extras',
-  description: 'Seamless native conversation math and safe default-application file actions',
+  description: 'Native conversation math, local default-app opening and remote file downloads',
   configSchema: { jsonSchema: configSchema },
   register: registerDashboardExtras,
 };

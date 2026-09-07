@@ -20,9 +20,12 @@ buttons, the composer, history, and file previews remain owned by OpenClaw.
   the rendered formula. Surrounding prose retains its normal spacing.
   Display formulas grow to their natural height without vertical scrollbars;
   only genuinely wide formulas scroll horizontally.
-- **Click any local file link → the Gateway host's system default application.**
-  No file-extension allowlist, preview-kind detection, or Dashboard file-read
-  request. Files without extensions work too. The OS decides which app to use.
+- **Click any file link → default application locally, download remotely.**
+  A Gateway-attested local browser opens the file with the Gateway Mac's default
+  application. Remote/unknown-location browsers download it to their own device;
+  a reported native-launch failure also falls back to download.
+  No file-extension allowlist or preview-kind detection. Binary, empty and
+  extensionless files work too; downloads preserve the original bytes.
   Alt-click retains OpenClaw's original side-panel behavior when needed.
 - No OpenClaw version pin, core asset patch, upgrade wrapper, or startup build.
 
@@ -40,7 +43,8 @@ Dashboard*, not just a lookalike fixture. See [Architecture](docs/ARCHITECTURE.m
   trusted loopback. Native plugins are trusted code, not a sandbox.
 - Native opening: macOS **Gateway host**, an authenticated admin/profile, and
   a regular file authorized by that session's workspace/media-root policy.
-  Remote execution-node sessions and unsupported platforms cannot launch files.
+  Downloads use the same admin/profile and file-root authorization, including on
+  non-Mac Gateways. Files on a remote execution node are not Gateway-local files.
 
 ## Install
 
@@ -86,12 +90,29 @@ Use real local paths and standard Markdown. Angle brackets preserve spaces:
 ```
 
 Plain clicks on native file links and scheme-less local Markdown destinations
-open local files directly. HTTP(S), mail, fragment and native session links keep
+open or download files directly. HTTP(S), mail, fragment and native session links keep
 their normal owners. Alt/modified clicks retain native preview/navigation. It never
 repairs literal `***` or guesses usernames in damaged historical links.
 
-Opening happens **on the Gateway host**, not on a remote browser's computer.
-Messages are never opened automatically; an explicit file-link click is required.
+### Local versus remote
+
+The backend uses the Gateway handshake's **server-attested local-client flag**,
+not the browser's operating system, a guessed hostname, or a caller-supplied flag.
+Native opening is allowed only when that flag is present; otherwise the browser
+downloads the file. For native opening on the Gateway Mac, use its localhost or
+loopback Dashboard address. Proxy routes that cannot attest locality deliberately
+download, even if the browser happens to be on that Mac. A loopback SSH tunnel
+can appear local to the Gateway; physical browser location cannot be reliably
+inferred through such a tunnel. Use the normal remote Dashboard address there.
+
+Downloads use bounded binary chunks over the existing authenticated Gateway
+connection. No public file URL, copied login token, new server, preview API, or
+extension/MIME allowlist is needed. The browser assembles the complete file as a
+Blob, so very large files depend on the browser's available memory. A changed
+file/session or revoked permission aborts the download without saving partial bytes.
+The browser's normal download settings decide its destination or save dialog.
+
+Messages are never opened/downloaded automatically; an explicit click is required.
 
 ## Upgrades and recovery
 
@@ -131,7 +152,9 @@ npm run test:e2e
 assets** in isolated Chromium with synthetic RPCs. It checks math in native
 bubbles, unclipped fractions/scripts/matrices, horizontal-only scrolling with
 both ends of long formulas reachable, arbitrary and extensionless direct-file
-payloads, untouched drafts, and reload without a mode switch. It never accesses a running Gateway, accounts,
+payloads, actual browser downloads with byte-for-byte verification across chunk
+boundaries, empty files, local launch failure fallback, untouched drafts, and
+reload without a mode switch. It never accesses a running Gateway, accounts,
 real chats, the user's browser profile, or an OS opener. Latest-host macOS/Linux
 CI runs daily; it does not upgrade or deploy to anyone's machine.
 
@@ -145,9 +168,11 @@ Further reading: [Architecture](docs/ARCHITECTURE.md),
 
 ## 中文说明
 
-公式直接渲染在原生 session conversation 中；点击任何本地文件链接直接交给
-Gateway 所在 Mac 的系统默认软件。**不枚举扩展名、不依赖预览支持**，也没有
-第二套聊天视图。需要原生侧栏时可 Alt-click。
+公式直接渲染在原生 session conversation 中；点击文件链接时，已确认在 Gateway
+本机的浏览器使用系统默认软件，远程浏览器则下载到当前设备。本机启动应用失败也
+会尝试下载。**不枚举扩展名、不依赖预览支持**，也没有第二套聊天视图。
+需要原生侧栏时可 Alt-click。本机默认应用模式请通过 localhost/loopback 访问；
+无法确认本机身份的代理连接按远程处理。下载沿用原有管理员和会话文件权限。
 
 插件不覆盖 Dashboard、不锁 OpenClaw 版本。公式位置有一小层仅作用于原生
 transcript 的 DOM 适配，未来 UI 大改可能需要更新。每日 CI 使用当时最新版

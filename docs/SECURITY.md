@@ -10,13 +10,17 @@ code harmless. Review dependencies and new releases before installation.
 The browser decorates native messages and routes local-file links through authorized
 gateway APIs after an explicit administrator click. The backend reads only the session/configuration and file
 metadata needed to validate that request, and holds a read-only descriptor to
-the selected file during native-open validation.
+the selected file during native-open validation or bounded download reads.
 
 The native action opens the default application **on the gateway host**, not the
 browser client. It is supported only on macOS with the required local runtime
-APIs. A remote browser connected to a Mac opens the document on that Mac; a Mac
-browser connected to a Linux gateway does not gain local launching. Sessions
-delegated to a remote execution node are rejected.
+APIs and the Gateway's server-attested local-client flag. Remote browsers never
+request a native launch; they download the file to their own device. Non-Mac
+Gateways can serve downloads but do not gain native launching. The flag is a
+transport attestation: an indistinguishable loopback tunnel is not a physical
+location detector. Unknown/proxy routes without the flag download conservatively.
+Sessions delegated to a remote execution node are rejected: remote browser
+location and remote file/execution location are separate concerns.
 
 This plugin does not install packages, change gateway configuration, edit files,
 write transcripts, repair historical messages, run shell commands, or restart
@@ -28,7 +32,9 @@ that do write package and managed installation state.
 
 `dashboardExtras.capabilities` requires `operator.read` and required profile
 access. `dashboardExtras.openLocalFile` requires `operator.admin` and required
-profile access. Browser-side click guards are only usability checks; the backend enforces
+profile access, plus attested local-client admission. `dashboardExtras.readLocalFile`
+also requires `operator.admin` and required profile access; downloads do not
+broaden file access for read-only profiles. Browser-side click guards are only usability checks; the backend enforces
 authorization independently.
 
 The privileged request must pass every check:
@@ -58,6 +64,24 @@ and never automatically open untrusted attachments. The plugin reports whether
 LaunchServices accepted the request, not whether a window appeared or an
 application safely processed the file.
 
+## Download authority
+
+The download RPC reuses session incarnation, configured roots, safe regular-file
+descriptor, containment and live-policy checks. Each response contains at most
+512 KiB of file bytes, base64-encoded for the existing authenticated connection.
+No credentials are copied and no unauthenticated endpoint or capability URL is
+created. The browser rejects inconsistent offsets, lengths or revisions and
+never saves a partial download. A replaced/modified file is rejected based on
+descriptor identity and nanosecond modification/change timestamps. This is
+change detection, not a snapshot against a privileged writer able to manipulate
+filesystem metadata. Empty and arbitrary binary files remain valid.
+
+The completed Blob uses `application/octet-stream` with an explicit download
+attribute. HTML/SVG and other active content are downloaded, never executed or
+navigated to by the plugin. Temporary object URLs are revoked after use. The
+browser buffers the entire completed file; available client memory limits very
+large transfers. Existing RPC authentication/transport limits remain in force.
+
 ## Browser content and races
 
 Messages, Markdown, and file links are untrusted. Rendered output is sanitized;
@@ -73,7 +97,7 @@ On session changes, agent changes, disconnection, or view disposal, late work
 must not dispatch an old native-open request.
 The click handler checks current connection/admin capability and fresh
 matching session metadata. It never requires a preview, extension match or
-MIME sniff; the system default application handles the validated regular file. Missing capability, malformed replies, stale state,
+MIME sniff; the system default application or browser download handles the validated regular file. Missing capability, malformed replies, stale state,
 or backend refusal must remain visibly unavailable or show a safe error.
 
 Literal redacted or masked paths remain literal. Do not guess a username,

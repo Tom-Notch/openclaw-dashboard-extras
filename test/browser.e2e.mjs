@@ -81,8 +81,11 @@ FENCE_FIXTURE`.replace('LONG_FORMULA',()=>Array.from({length:80},(_,i)=>`x_${i+1
 const history = [{role:'user',content:'Show the report.',timestamp:Date.now()-2000},{role:'assistant',content:[{type:'text',text:message}],timestamp:Date.now()-1000}];
 const entryUrl = '/__openclaw__/plugins/control-ui/dashboard-extras/fixture/index.js';
 const catalog = {revision:'fixture',diagnostics:[],plugins:[{pluginId:'dashboard-extras',name:'Dashboard Extras',revision:'fixture',entryUrl,styles:[]}]};
-const methods = ['agents.list','sessions.list','sessions.resolve','sessions.describe','chat.history','chat.startup','chat.metadata','models.list','sessions.files.list','sessions.files.get','plugins.controlUi.list','plugins.controlUi.report','dashboardExtras.capabilities','dashboardExtras.openLocalFile'];
+const methods = ['agents.list','sessions.list','sessions.resolve','sessions.describe','chat.history','chat.startup','chat.metadata','models.list','sessions.files.list','sessions.files.get','plugins.controlUi.list','plugins.controlUi.report','dashboardExtras.capabilities','dashboardExtras.openLocalFile','dashboardExtras.readLocalFile'];
 const calls=[];const socketEvents=[];
+let localClient=true,openFails=false;
+const binary=Buffer.alloc(600000);for(let i=0;i<binary.length;i++)binary[i]=i%256;
+const files=new Map([['opaque.unlistedverylongsuffix',binary],['LICENSE',Buffer.alloc(0)],['report with spaces.xyz',Buffer.from('Download bytes: \u4e2d\u6587\n<svg onload="throw Error(\'must not execute\')">')]]);
 const server=http.createServer((request,response)=>{
  const pathname=new URL(request.url,'http://localhost').pathname;
  response.setHeader('Cache-Control','no-store');
@@ -109,8 +112,13 @@ function reply(method,params){
  if(method==='models.list')return {models};
  if(method==='sessions.files.list')return {sessionKey,root:workspace,files:[],browser:{entries:[],path:''}};
  if(method==='sessions.files.get')throw Error('Direct opening must not request a preview');
- if(method==='dashboardExtras.capabilities')return {nativeOpen:true,sessionId:session.sessionId,root:workspace};
- if(method==='dashboardExtras.openLocalFile')return {opened:true};
+ if(method==='dashboardExtras.capabilities')return {nativeOpen:localClient,localClient,download:true,sessionId:session.sessionId,root:workspace};
+ if(method==='dashboardExtras.openLocalFile')return openFails?{opened:false,code:'open-failed'}:{opened:true};
+ if(method==='dashboardExtras.readLocalFile'){
+  const name=path.posix.basename(params.path),data=files.get(name);if(!data)throw Error('unknown download');
+  if(params.expectedRevision!==undefined&&params.expectedRevision!=='a'.repeat(64))throw Error('file changed');
+  return {read:true,name,size:data.length,offset:params.offset,nextOffset:Math.min(data.length,params.offset+512*1024),revision:'a'.repeat(64),data:data.subarray(params.offset,params.offset+512*1024).toString('base64')};
+ }
  if(method==='sessions.groups.list')return {names:[],defaults:{},sectionOrder:[]};
  if(method==='artifacts.list')return {artifacts:[]};
  if(method==='plugins.controlUi.report')return {ok:true};
@@ -217,12 +225,26 @@ try{
  assert.equal(calls.some(x=>x.method==='sessions.files.get'),false,'opening never depends on preview');
  assert.equal(await page.locator('.sidebar-file-view').count(),0);
  assert.equal(await composer.inputValue(),'UNSENT_DRAFT');
+ stage='remote-browser-downloads';localClient=false;
+ const nativeBeforeRemote=calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length;
+ for(const [label,name] of [['Open a local file','opaque.unlistedverylongsuffix'],['Open extensionless file','LICENSE'],['Open path with spaces','report with spaces.xyz']]){
+  const [download]=await Promise.all([page.waitForEvent('download'),page.locator('[data-dashboard-extras-native] a').filter({hasText:label}).click()]);
+  assert.equal(download.suggestedFilename(),name);assert.equal(await download.failure(),null);
+  assert.deepEqual(fs.readFileSync(await download.path()),files.get(name),'downloaded bytes must be complete and unmodified');
+  await page.waitForFunction(()=>!document.querySelector('a[aria-busy="true"]'));
+ }
+ assert.equal(calls.filter(x=>x.method==='dashboardExtras.openLocalFile').length,nativeBeforeRemote,'remote clicks must not launch an app on the Gateway');
+ assert.ok(calls.some(x=>x.method==='dashboardExtras.readLocalFile'&&x.params.offset===512*1024),'download crosses RPC chunk boundaries');
+ stage='local-launch-failure-download';localClient=true;openFails=true;
+ const [fallbackDownload]=await Promise.all([page.waitForEvent('download'),page.locator('[data-dashboard-extras-native] a').filter({hasText:'Open extensionless file'}).click()]);
+ assert.equal(fallbackDownload.suggestedFilename(),'LICENSE');assert.equal(await fallbackDownload.failure(),null);openFails=false;
+ assert.equal(await page.locator('.sidebar-file-view').count(),0);assert.equal(await composer.inputValue(),'UNSENT_DRAFT');
  const artifacts=path.join(project,'test-results');fs.mkdirSync(artifacts,{recursive:true});await page.locator('openclaw-chat-pane').screenshot({path:path.join(artifacts,'native-browser.png')});
  stage='reload-without-switch';await page.reload();await page.waitForFunction(()=>document.querySelectorAll('[data-dashboard-extras-native] math').length===14);
  await checkOverflow();
  for(const node of await typography())assert.equal(node.size,node.bodySize);
  assert.equal(calls.some(x=>x.method==='chat.send'),false);assert.deepEqual(errors,[]);
- const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:14,horizontalOnlyMathScrolling:true,mathBoundsUnclipped:true,wideFormulaEndsReachable:true,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,compactFormulaSpacing:spacing,directFiles:['unlisted extension','extensionless','spaces'],explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
+ const result={status:'passed',hostVersion:hostPackage.packageJson.version,realInstalledDashboard:true,syntheticRpcOnly:true,formulas:14,horizontalOnlyMathScrolling:true,mathBoundsUnclipped:true,wideFormulaEndsReachable:true,consistentMathBaseSize:true,chatTextSizeChanges:true,superscriptHierarchy:true,compactFormulaSpacing:spacing,directFiles:['unlisted extension','extensionless','spaces'],remoteDownloadsVerified:true,binaryChunkBoundaries:true,emptyFileDownload:true,localLaunchFailureDownload:true,explicitOpenOnly:true,draftPreserved:true,noModeSwitch:true,reload:true,pageErrors:[],actualApplicationOpened:false};
  fs.writeFileSync(path.join(artifacts,'native-browser.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
 }catch(error){
  await page?.screenshot({path:path.join(project,'test-results/native-browser-failure.png')}).catch(()=>{});
