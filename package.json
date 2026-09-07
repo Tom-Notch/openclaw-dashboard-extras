@@ -1,6 +1,6 @@
 {
   "name": "@tom-notch/openclaw-dashboard-extras",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Native conversation math, local default-app opening and remote file downloads",
   "license": "MIT",
   "type": "module",

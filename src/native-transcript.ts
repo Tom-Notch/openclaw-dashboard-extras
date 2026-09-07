@@ -1,7 +1,7 @@
 import type { ControlUiSurfaceProps, ControlUiViewContext } from 'openclaw/plugin-sdk/control-ui';
 import { enhanceNativeMath } from './native-math.ts';
 import { localFileFromAnchor } from './local-file-link.ts';
-import { downloadSessionFile } from './download-file.ts';
+import { downloadSessionFile, fileActionFailureMessage } from './download-file.ts';
 
 type Context = ControlUiViewContext<ControlUiSurfaceProps['transcript']>;
 type RecordValue = Record<string, unknown>;
@@ -61,7 +61,7 @@ export function mountNativeTranscript(container: HTMLElement, initial: Context) 
       if (!valid()) return;
       if (access.download !== true) { failure(anchor, 'File download is unavailable. Reload the updated plugin and try again.'); return; }
       await downloadSessionFile(host, request, document, valid);
-    } catch { if (valid()) failure(anchor, 'Could not open or download this file. Check its path, session file permissions and Gateway connection.'); }
+    } catch (error) { if (valid()) failure(anchor, fileActionFailureMessage(error)); }
     finally { pending.delete(anchor); anchor.removeAttribute('aria-busy'); }
   }
   function onClick(event: MouseEvent) {

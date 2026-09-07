@@ -42,7 +42,7 @@ Dashboard*, not just a lookalike fixture. See [Architecture](docs/ARCHITECTURE.m
 - **Settings → Labs → Custom plugin UI**, with Dashboard served over HTTPS or
   trusted loopback. Native plugins are trusted code, not a sandbox.
 - Native opening: macOS **Gateway host**, an authenticated admin/profile, and
-  a regular file authorized by that session's workspace/media-root policy.
+  a regular file authorized by OpenClaw's current filesystem policy.
   Downloads use the same admin/profile and file-root authorization, including on
   non-Mac Gateways. Files on a remote execution node are not Gateway-local files.
 
@@ -114,6 +114,17 @@ The browser's normal download settings decide its destination or save dialog.
 
 Messages are never opened/downloaded automatically; an explicit click is required.
 
+### Files outside the session workspace
+
+Reports saved to Downloads or another output directory need not be moved into
+the session's working directory. Version 0.3.1 uses OpenClaw's public
+source-aware filesystem policy resolver for the exact clicked file, honoring
+the effective `tools.fs.workspaceOnly` setting and global/agent read policies.
+It does not hardcode a home directory, grant all of Downloads, change your
+configuration, or reinterpret the session's workspace. Restricted sessions stay
+restricted. A denied folder, missing file, or changed file now has a specific
+inline error instead of the same generic connection message.
+
 ## Upgrades and recovery
 
 Upgrade OpenClaw normally using its stable channel. There is no per-release
@@ -162,6 +173,9 @@ CI runs daily; it does not upgrade or deploy to anyone's machine.
 asset build to `openclaw plugins build`, and scans public files. The builder and
 type checker use `PATH` or `OPENCLAW_CLI`, not a release selector. The lockfile
 reproduces plugin dependencies; it does not pin OpenClaw.
+The filesystem-policy regression uses the installed host's **real public SDK**
+with isolated synthetic state/config/files: outputs outside a narrower workspace,
+global/agent restrictions and overrides, and permission revocation during I/O.
 
 Further reading: [Architecture](docs/ARCHITECTURE.md),
 [Security](docs/SECURITY.md), [Upgrades](docs/UPGRADING.md), [Notices](NOTICE).

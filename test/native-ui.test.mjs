@@ -178,3 +178,19 @@ test('download refusals, changed files and stale sessions never save partial or 
   await pause();assert.equal(v.downloads.length,0);assert.equal(v.blobs.length,0);
  }
 });
+
+test('file errors identify known causes without exposing raw backend errors',async t=>{
+ for(const [code,expected] of [
+  ['outside-allowed-roots',/file policy/],['file-unavailable',/missing/],
+  ['not-a-file',/folder/],['file-changed',/changed during download/],
+  ['stale-preview',/permissions changed/],['unknown-private-detail',/Could not open or download/],
+ ]){
+  const v=await fixture(t,{request:async method=>method==='dashboardExtras.capabilities'
+   ?{nativeOpen:false,localClient:false,download:true,sessionId:'incarnation',root:'/workspace'}
+   :{read:false,code,reason:'RAW_BACKEND_PRIVATE_DETAIL'}});
+  v.setText('[File](./report)');v.bubble.querySelector('a').click();await pause();
+  const notice=v.bubble.querySelector('[role="status"]');assert.match(notice.textContent,expected);
+  assert.doesNotMatch(notice.textContent,/RAW_BACKEND|unknown-private-detail/);
+  assert.equal(v.downloads.length,0);
+ }
+});

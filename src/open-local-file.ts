@@ -2,12 +2,14 @@ import { execFile, spawn } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import type { OpenClawConfig, OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
 
 type SecuritySdk = typeof import('openclaw/plugin-sdk/security-runtime');
 export type NativeOpenSdk = Pick<SecuritySdk, 'FsSafeError' | 'openLocalFileSafely' | 'resolveLocalPathFromRootsSync'> & {
   resolveSessionAgentIdStrict: typeof import('openclaw/plugin-sdk/agent-scope-runtime').resolveSessionAgentIdStrict;
   getAgentScopedMediaLocalRoots: typeof import('openclaw/plugin-sdk/media-local-roots').getAgentScopedMediaLocalRoots;
+  getAgentScopedMediaLocalRootsForSources: typeof import('openclaw/plugin-sdk/media-local-roots').getAgentScopedMediaLocalRootsForSources;
 };
 export type NativeOpenDeps = {
   platform?: NodeJS.Platform;
@@ -64,6 +66,7 @@ async function loadNativeOpenSdk(): Promise<NativeOpenSdk | undefined> {
   ]).then(([scope, media, security]) => ({
     resolveSessionAgentIdStrict: scope.resolveSessionAgentIdStrict,
     getAgentScopedMediaLocalRoots: media.getAgentScopedMediaLocalRoots,
+    getAgentScopedMediaLocalRootsForSources: media.getAgentScopedMediaLocalRootsForSources,
     FsSafeError: security.FsSafeError,
     openLocalFileSafely: security.openLocalFileSafely,
     resolveLocalPathFromRootsSync: security.resolveLocalPathFromRootsSync,
@@ -74,7 +77,7 @@ async function loadNativeOpenSdk(): Promise<NativeOpenSdk | undefined> {
 async function resolveSdk(deps: NativeOpenDeps): Promise<NativeOpenSdk | undefined> {
   try {
     const sdk = await (deps.loadSdk ?? loadNativeOpenSdk)();
-    if (!sdk || !['resolveSessionAgentIdStrict', 'getAgentScopedMediaLocalRoots', 'FsSafeError',
+    if (!sdk || !['resolveSessionAgentIdStrict', 'getAgentScopedMediaLocalRoots', 'getAgentScopedMediaLocalRootsForSources', 'FsSafeError',
       'openLocalFileSafely', 'resolveLocalPathFromRootsSync'].every(key => typeof sdk[key as keyof NativeOpenSdk] === 'function')) return undefined;
     return sdk;
   } catch { return undefined; }
@@ -99,7 +102,7 @@ function parseOpenRequest(params: unknown): OpenRequest | undefined {
   return { ...session, requestedPath: raw.path, expectedSessionId: raw.expectedSessionId.trim(), expectedRoot: raw.expectedRoot };
 }
 
-function resolveBinding(api: OpenClawPluginApi, sdk: NativeOpenSdk, request: SessionRequest) {
+function resolveBinding(api: OpenClawPluginApi, sdk: NativeOpenSdk, request: SessionRequest & { requestedPath?: string }) {
   const cfg = api.runtime.config.current() as OpenClawConfig;
   const agentId = sdk.resolveSessionAgentIdStrict({ config: cfg, sessionKey: request.sessionKey, agentId: request.agentId });
   const entry = api.runtime.agent.session.getSessionEntry({ agentId, sessionKey: request.sessionKey, readConsistency: 'latest' });
@@ -107,7 +110,16 @@ function resolveBinding(api: OpenClawPluginApi, sdk: NativeOpenSdk, request: Ses
   const configuredWorkspace = api.runtime.agent.resolveAgentWorkspaceDir(cfg, agentId);
   const root = entry.spawnedWorkspaceDir ?? entry.spawnedCwd ?? configuredWorkspace;
   if (!validText(root, MAX_PATH_LENGTH) || !path.isAbsolute(root)) return undefined;
-  const roots = [...sdk.getAgentScopedMediaLocalRoots(cfg, agentId), configuredWorkspace, entry.spawnedWorkspaceDir, entry.spawnedCwd];
+  // Baseline media roots alone omit legitimate outputs outside a session's cwd.
+  // Let the host's public policy resolver authorize this concrete source. It
+  // honors workspaceOnly and global/agent read policies; no hardcoded home or
+  // output-directory grant, and the same policy is re-read after awaited IO.
+  const sourceRoots = request.requestedPath === undefined ? [] : sdk.getAgentScopedMediaLocalRootsForSources({
+    cfg, agentId,
+    // A file URL preserves literal #, percent signs and filename edge spaces.
+    mediaSources: [pathToFileURL(path.resolve(root, request.requestedPath)).href],
+  });
+  const roots = [...sdk.getAgentScopedMediaLocalRoots(cfg, agentId), ...sourceRoots, configuredWorkspace, entry.spawnedWorkspaceDir, entry.spawnedCwd];
   return { agentId, entry, root, roots: [...new Set(roots.filter((root): root is string => validText(root, MAX_PATH_LENGTH) && path.isAbsolute(root)).map(root => path.resolve(root)))] };
 }
 type Binding = NonNullable<ReturnType<typeof resolveBinding>>;

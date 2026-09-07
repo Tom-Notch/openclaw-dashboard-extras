@@ -4,6 +4,22 @@ const CHUNK_BYTES = 512 * 1_024;
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
+export class FileDownloadError extends Error {
+  constructor(readonly code: unknown) { super('File download was refused.'); }
+}
+
+/** Only known safe codes become UI messages; never expose raw RPC exceptions. */
+export function fileActionFailureMessage(error: unknown): string {
+  if (error instanceof FileDownloadError) switch (error.code) {
+    case 'outside-allowed-roots': return 'This session’s file policy does not allow access to this folder.';
+    case 'file-unavailable': return 'This file is missing or the Gateway cannot read it.';
+    case 'not-a-file': return 'This link points to a folder or another non-file item.';
+    case 'file-changed': return 'This file changed during download. Click the link again.';
+    case 'stale-preview': return 'The session or its file permissions changed. Click the link again.';
+  }
+  return 'Could not open or download this file. Check its path, session file permissions and Gateway connection.';
+}
+
 /** Download arbitrary bytes using the operator's existing authenticated RPC connection. */
 export async function downloadSessionFile(host: ControlUiHost, params: Record<string, unknown>, document: Document, current: () => boolean): Promise<void> {
   const view = document.defaultView!;
@@ -13,6 +29,7 @@ export async function downloadSessionFile(host: ControlUiHost, params: Record<st
     if (!current()) return;
     const result = await host.request('dashboardExtras.readLocalFile', { ...params, offset, ...(revision ? { expectedRevision: revision } : {}) });
     if (!current()) return;
+    if (record(result) && result.read === false) throw new FileDownloadError(result.code);
     if (!record(result) || result.read !== true || !integer(result.size) || result.offset !== offset || !integer(result.nextOffset) ||
         result.nextOffset > result.size || result.nextOffset - offset > CHUNK_BYTES ||
         (result.nextOffset <= offset && result.size !== 0) || typeof result.revision !== 'string' || !/^[a-f0-9]{64}$/.test(result.revision) ||

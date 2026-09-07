@@ -51,6 +51,16 @@ The privileged request must pass every check:
    followed by a second fresh session/configuration/roots check immediately
    before launch.
 
+Root derivation includes the public
+`getAgentScopedMediaLocalRootsForSources` resolver for the concrete clicked
+source. Unlike the baseline media-root list alone, it honors OpenClaw's effective
+filesystem policy for files outside the workspace. The host only adds a source's
+parent when workspace-only and global/agent read restrictions permit expansion.
+The plugin supplies an encoded file URL to preserve literal filename characters;
+it neither hardcodes an output-directory exception nor changes configuration.
+The same resolver runs again after awaited I/O, so tightening that policy revokes
+an in-flight request. Missing source-policy API support fails closed.
+
 Only that validated file reference reaches `/usr/bin/open`, as an argument after
 `--`, without a shell. The client path is never passed to the operating system
 as a command, web URL, or application selector. Foundation runs a fixed script

@@ -107,6 +107,15 @@ reference, and rechecks session/config authority before `/usr/bin/open`.
 The user path is never evaluated as a command or passed as a LaunchServices URL.
 Unsupported safety APIs disable the operation, not Gateway startup.
 
+For each selected source, the public SDK's
+`getAgentScopedMediaLocalRootsForSources` derives any additional roots allowed
+by current workspace-only and global/agent read policy. A session's working
+directory is not automatically its entire filesystem permission boundary.
+Capabilities retain that workspace identity; the clicked path does not replace
+it. Source-aware permissions are recomputed alongside session checks after
+awaited I/O. Real-host SDK regressions cover outside-workspace outputs and
+denied/revoked policy without reading the operator's configuration or files.
+
 The native-open RPC additionally requires `client.internal.isLocalClient === true`
 from the public handler context; spoofed parameters, user agents, and a bare
 loopback `clientIp` are not accepted as proof. This reflects the Gateway's

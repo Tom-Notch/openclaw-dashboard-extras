@@ -12,6 +12,9 @@ export function resolveSessionAgentIdStrict({ config, sessionKey, agentId }) {
   return scoped ?? agentId ?? config.testAgent ?? 'main';
 }
 export function getAgentScopedMediaLocalRoots(cfg) { return cfg.testRoots ?? []; }
+// Existing synthetic tests intentionally model a workspace-restricted host.
+// Source expansion and real policy precedence are covered with the actual SDK.
+export function getAgentScopedMediaLocalRootsForSources({cfg}) { return cfg.testRoots ?? []; }
 export class FsSafeError extends Error { constructor(code) { super(code); this.code = code; } }
 export function resolveLocalPathFromRootsSync({ filePath, roots, allowMissing, requireFile }) {
   let target;

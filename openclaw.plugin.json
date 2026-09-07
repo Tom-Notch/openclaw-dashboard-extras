@@ -11,9 +11,9 @@
     "additionalProperties": false,
     "properties": {}
   },
-  "version": "0.3.0",
+  "version": "0.3.1",
   "controlUi": {
-    "entry": "dist/control-ui/c6cb1b2b43552a73d0518845880be0ebb07d7b7fda4bfcf49799c0a27be77906/index.js"
+    "entry": "dist/control-ui/9f4acc541e7d0808a318e95ec7d7b1adf0d1462540f40f11ddbe223dc5c09912/index.js"
   },
   "contracts": {
     "tools": []
